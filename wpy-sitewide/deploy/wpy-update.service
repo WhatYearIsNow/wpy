@@ -1,0 +1,15 @@
+[Unit]
+Description=WPY board incremental update (crawl new posts)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=wpy
+WorkingDirectory=/opt/wpy-sitewide
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/wpy-sitewide/deploy/env.update
+# 只抓新帖并补正文/评论，不交互；服务器上保守限速
+ExecStart=/usr/bin/python3 -m wpy update --no-confirm --qps 5
+Nice=10
+TimeoutStartSec=2h

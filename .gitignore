@@ -1,0 +1,46 @@
+# ============================================================
+#  微北洋工具集 · gitignore
+#  原则：凭据绝不能提交；抓取数据体积大且含他人内容，也不入库。
+# ============================================================
+
+# ---- 登录凭据（最高优先级）----
+凭据.json
+credentials.json
+*.credential
+
+# ---- 抓取/导出数据（体积大，且含他人昵称头像等内容）----
+wpy-sitewide/data/
+
+# ---- Python 缓存 ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ---- 编辑器与系统 ----
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---- 临时文件 ----
+*.tmp
+*.part
+
+# ---- 本地调试产物（截图 / 下载 / 备份），不入库 ----
+_shots/
+_dl/
+_backup/
+wpy-sitewide/_shots/
+
+# ---- 重构期间临时快照 ----
+docs/refactor/phase09_db_*.json
+
+# ---- 内嵌独立仓库 ----
+wepeiyang-src/
+
+# ---- 自动化验收脚本（本地调试用）----
+tools/__pycache__/
