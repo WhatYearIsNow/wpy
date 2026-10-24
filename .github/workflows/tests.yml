@@ -19,6 +19,8 @@ jobs:
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
@@ -38,7 +40,7 @@ jobs:
       - name: Offline crawler smoke test
         run: python tools/offline_stage_smoke.py
       - name: Check public source files
-        run: python scripts/check_public_source.py
+        run: python scripts/check_public_source.py --history
       - name: Build distribution packages
         run: python -m build --outdir "$RUNNER_TEMP/dist"
       - name: Verify installed wheel and frontend resources
