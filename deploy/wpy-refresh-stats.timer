@@ -1,0 +1,10 @@
+[Unit]
+Description=Run WPY stats refresh daily at 23:00
+
+[Timer]
+OnCalendar=*-*-* 23:00:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

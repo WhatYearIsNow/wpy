@@ -1,0 +1,50 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Set isolated runtime directories
+        run: |
+          printf '%s\n' \
+            "WPY_DATA_DIR=$RUNNER_TEMP/wpy/data" \
+            "WPY_BUILD_DIR=$RUNNER_TEMP/wpy/build" \
+            "WPY_LOG_DIR=$RUNNER_TEMP/wpy/logs" \
+            "WPY_PAGES_DIR=$RUNNER_TEMP/wpy/pages" >> "$GITHUB_ENV"
+      - name: Install development dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Unit tests
+        run: python -m pytest
+      - name: Offline crawler smoke test
+        run: python tools/offline_stage_smoke.py
+      - name: Check public source files
+        run: python scripts/check_public_source.py
+      - name: Build distribution packages
+        run: python -m build --outdir "$RUNNER_TEMP/dist"
+      - name: Verify installed wheel and frontend resources
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-env"
+          "$RUNNER_TEMP/wheel-env/bin/python" -m pip install --no-deps "$RUNNER_TEMP"/dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-env/bin/python" -c 'from wpy.ui_templates import CSS, JS; assert CSS and JS'
+          "$RUNNER_TEMP/wheel-env/bin/wpy" --help

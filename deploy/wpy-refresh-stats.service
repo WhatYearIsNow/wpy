@@ -1,0 +1,14 @@
+[Unit]
+Description=WPY refresh all post stats (likes/views/comments count)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=wpy
+WorkingDirectory=/opt/wpy/wpy-sitewide
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/wpy/wpy-sitewide/deploy/env.update
+ExecStart=/usr/bin/python3 /opt/wpy/wpy-sitewide/scripts/refresh_stats.py --all --rebuild --qps 6
+Nice=15
+TimeoutStartSec=14h

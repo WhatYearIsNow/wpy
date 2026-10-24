@@ -1,0 +1,16 @@
+# 青年湖底看板 · Caddy 配置示例
+# 把 your.domain.example 换成你的域名
+# 放到 /etc/caddy/Caddyfile，然后 systemctl reload caddy
+#
+# 前提：域名 A 记录指向服务器 IP；看板服务监听 127.0.0.1:8765
+
+your.domain.example {
+	encode gzip
+	reverse_proxy 127.0.0.1:8765
+
+	# 可选：限制请求体与基础安全头
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+}

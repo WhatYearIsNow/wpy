@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wpy-sitewide"
+version = "0.1.0"
+description = "基于 SQLite 的微北洋青年湖底论坛采集与看板"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<10",
+    "pytest-cov>=5,<8",
+    "build>=1.2,<2",
+]
+
+[project.urls]
+Repository = "https://github.com/WhatYearIsNow/wpy"
+Issues = "https://github.com/WhatYearIsNow/wpy/issues"
+
+[project.scripts]
+wpy = "wpy.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["wpy", "wpy.*"]
+
+[tool.setuptools.package-data]
+"wpy.ui_templates" = ["*.css", "*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

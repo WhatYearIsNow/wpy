@@ -1,0 +1,36 @@
+# 数据与生成产物
+data/
+build/
+logs/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.venv/
+venv/
+*.egg-info/
+dist/
+
+# 本地页面内容可能包含论坛账号、联系信息和正文，仅公开空模板
+/pages/*.json
+!/pages/*.example.json
+
+# 备份
+.backup/
+*.bak
+*.bak-*
+
+# 敏感：密钥/口令（保留 .example 模板）
+.tju_key
+.env
+.env.*
+!.env.example
+deploy/env.board
+deploy/env.update
+
+# 临时
+*.tmp
+*.pyo

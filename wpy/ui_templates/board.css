@@ -1,0 +1,587 @@
+
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  /* 取值对齐 App light_scheme.dart */
+  --primary:#2C7EDF;          /* primaryActionColor */
+  --primary-light:#A6CFFF;    /* primaryLightActionColor */
+  --primary-pale:#E9EEF5;     /* lightPrimaryContainer */
+  --bg:#F6F9FD;               /* lighterPrimaryBackGround */
+  --card:#fff;
+  --line:#EDF1F7;
+  --txt:#2A2A2A;              /* labelTextColor */
+  --sub:#979797;              /* unlabeledColor */
+  --info:#4E4E4E;             /* infoTextColor */
+  --like:#FF6B81; --star:#F5A623; --radius:14px;
+  /* 页面主栏宽度：手机全宽；大屏收成可读栏宽，避免单列铺满整屏 */
+  --shell:min(94vw,760px);
+}
+body{background:var(--bg);color:var(--txt);
+  font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",
+  "Segoe UI",Roboto,sans-serif;padding:0 0 48px;-webkit-font-smoothing:antialiased}
+
+/* ---- 顶栏：搜索常驻，筛选折叠 ---- */
+/* header 是 sticky，会创建层叠上下文。层级取 40，理由：
+   - 要高于普通内容（卡片），否则滚动时会被盖住
+   - 必须低于 .modal(50)，这样打开帖子时顶栏会被遮罩盖住、不再干扰阅读
+   （关注/用户浮层已改挂到 body 下用 fixed，因此不再受这里的层级影响） */
+header{background:#fff;position:sticky;top:0;z-index:40;
+  border-bottom:1px solid var(--line)}
+.top{width:var(--shell);margin:0 auto;padding:12px 20px 9px;
+  display:flex;align-items:center;gap:10px}
+.brand{font-size:15.5px;font-weight:700;color:var(--primary);white-space:nowrap;
+  letter-spacing:-.2px;cursor:pointer;user-select:none;padding:2px 4px;
+  border-radius:7px;transition:background .15s,transform .12s}
+.brand:hover{background:var(--primary-pale)}
+.brand:active{transform:scale(.96)}
+.searchwrap{flex:1;position:relative;min-width:0}
+.searchwrap svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);
+  width:15px;height:15px;stroke:var(--sub);fill:none;stroke-width:2}
+#q{width:100%;border:0;background:var(--bg);border-radius:10px;
+  padding:9px 12px 9px 33px;font-size:14px;color:var(--txt);outline:none}
+#q:focus{background:var(--primary-pale)}
+.btn-filter{border:0;background:var(--bg);color:var(--info);border-radius:10px;
+  padding:9px 13px;font-size:13.5px;cursor:pointer;white-space:nowrap;
+  display:flex;align-items:center;gap:5px}
+.btn-filter:hover{background:var(--primary-pale)}
+.btn-filter.on{background:var(--primary-pale);color:var(--primary)}
+.btn-filter .dot{width:6px;height:6px;border-radius:50%;
+  background:var(--primary);display:none}
+.btn-filter.on .dot{display:block}
+/* 标签行外壳：定宽居中，并承载左右渐隐提示（内容可横向滑动） */
+.tabwrap{position:relative;width:var(--shell);margin:0 auto}
+.tabwrap::before,.tabwrap::after{content:"";position:absolute;top:0;bottom:0;
+  width:26px;pointer-events:none;opacity:0;transition:opacity .18s;z-index:1}
+.tabwrap::before{left:0;background:linear-gradient(90deg,#fff 35%,transparent)}
+.tabwrap::after{right:0;background:linear-gradient(270deg,#fff 35%,transparent)}
+.tabwrap.fade-l::before{opacity:1}
+.tabwrap.fade-r::after{opacity:1}
+.tabbar{padding:0 20px 10px;
+  display:flex;align-items:center;gap:clamp(10px,1.6vw,22px);
+  flex-wrap:nowrap;               /* 永远单行，靠横向滚动容纳 */
+  overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.tabbar::-webkit-scrollbar{display:none}
+/* 标签不压缩、不被裁切 */
+.tabbar>*{flex:none}
+.chip{border:0;background:transparent;color:var(--sub);font-size:13.5px;
+  padding:5px 2px;cursor:pointer;white-space:nowrap;position:relative;
+  border-bottom:2px solid transparent;touch-action:none;user-select:none}
+.chip.on{color:var(--primary);font-weight:600;border-bottom-color:var(--primary)}
+.chip.dragging{opacity:.45;cursor:grabbing}
+.chip.drag-target{box-shadow:inset 2px 0 0 var(--primary)}
+.divider{width:1px;height:14px;background:var(--line);flex:none;margin:0 2px}
+/* 关注栏：只在有关注时出现，头像横向排列 */
+/* 关注：与「我的/收藏」并列的开关；悬停展开已关注列表 */
+.followwrap{position:relative;display:inline-flex;flex:none}
+/* 角色（游客/管理员）与动作按钮：游客隐藏 admin-only 元素 */
+.role-guest .admin-only{display:none!important}
+.act{border:1px solid #dfe5ee;background:#fff;border-radius:8px;
+padding:6px 12px;font-size:13px;cursor:pointer;color:#33415c}
+.act:hover{background:#f3f6fa}
+.act.on{background:#eef4ff;border-color:#7aa7f7;color:#2456c0}
+.act:disabled{opacity:.5;cursor:default}
+.replybox{margin-top:10px}
+.reply-target{display:none;align-items:center;gap:8px;font-size:12.5px;
+  color:var(--primary);margin-bottom:6px}
+.reply-target .nm{font-weight:600;max-width:60%;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.reply-target .act{padding:2px 8px;font-size:11px}
+.replybox textarea{width:100%;box-sizing:border-box;min-height:64px;
+border:1px solid #dfe5ee;border-radius:8px;padding:8px;font:inherit;resize:vertical}
+.replybox .row{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+.replybox input[type=text],.replybox select{width:100%;box-sizing:border-box;
+padding:8px;border:1px solid #dfe5ee;border-radius:8px;font:inherit;margin-bottom:10px}
+.cp-hint{font-size:12px;color:var(--sub);margin:2px 2px 0}
+.rolebadge{font-size:12px;color:#8a94a3;margin-left:10px;white-space:nowrap;
+display:flex;align-items:center;gap:6px}
+.rolebadge a{color:#3b82f6;text-decoration:none}
+.flbtn{padding:2px 8px;font-size:11px;margin-left:6px}
+
+/* 关注浮层：挂在 body 下 + fixed 定位，避开 header 的层叠上下文 */
+.followpop{position:fixed;z-index:95;
+  background:#fff;border-radius:14px;border:1px solid var(--line);
+  box-shadow:0 10px 30px rgba(16,24,40,.18);padding:7px;
+  display:flex;flex-direction:column;align-items:stretch;gap:2px;
+  min-width:150px;max-width:min(80vw,260px);
+  max-height:min(60vh,420px);overflow-y:auto;scrollbar-width:thin;
+  pointer-events:none;
+  /* 丝滑淡入：用 opacity + transform，不用 display 硬切 */
+  opacity:0;visibility:hidden;
+  transform:translateY(-6px) scale(.96);
+  transform-origin:top left;
+  transition:opacity .18s ease,transform .18s cubic-bezier(.2,.9,.3,1.2),
+             visibility .18s}
+.followpop::-webkit-scrollbar{display:none}
+.followpop.on{opacity:1;visibility:visible;
+  transform:translateY(0) scale(1);pointer-events:auto}
+/* 透明悬停桥：补上开关与浮层之间的空隙，鼠标移过去不中断 */
+.followwrap::after{content:"";position:absolute;left:0;right:0;top:100%;
+  height:9px}
+.followwrap:hover #sw-follow{background:var(--primary-pale)}
+/* 浮层里竖排一行：头像 + 昵称 */
+.fitem{display:flex;align-items:center;gap:9px;padding:6px 8px;
+  border-radius:9px;cursor:pointer;transition:background .14s}
+.fitem:hover{background:var(--bg)}
+.fitem .avatar,.fitem .avatar.ph{width:30px;min-width:30px;height:30px;font-size:13px;
+  display:block;flex:none}
+.fitem .fname{font-size:13px;color:var(--txt);font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fempty{padding:4px 6px;font-size:12.5px;color:var(--sub);white-space:nowrap}
+/* 触屏端浮层首行的操作项，与下面的人员列表用分隔线隔开 */
+.fitem.touch-act{border-bottom:1px solid var(--line);border-radius:9px 9px 0 0}
+/* 顶栏里的开关做成小号，与分区标签视觉重量接近 */
+.switch.tiny{padding:3.5px 10px;font-size:12.5px;border-radius:999px;flex:none}
+
+
+/* ---- 折叠的筛选面板 ---- */
+/* 按用户筛选时的提示条：让人随时知道当前在看谁，并能一键退出 */
+.userbar{display:none;background:var(--primary-pale);
+  border-top:1px solid #dbe7f8}
+.userbar.on{display:block}
+.userbar .ub{width:var(--shell);margin:0 auto;padding:8px 20px;
+  display:flex;align-items:center;gap:9px;font-size:13px;color:var(--primary)}
+.userbar .uz{font-weight:600}
+.userbar .ucount{color:var(--sub);font-size:12.5px}
+.userbar .uout{margin-left:auto;border:0;background:#fff;color:var(--primary);
+  border-radius:8px;padding:4px 12px;font-size:12.5px;font-weight:600;
+  cursor:pointer}
+.userbar .uout:hover{background:#dbe7f8}
+
+.panel{display:none;border-top:1px solid var(--line);background:#fff;
+  box-shadow:inset 0 -6px 12px -8px rgba(44,126,223,.10)}
+.panel.open{display:block;animation:slideDown .18s ease}
+@keyframes slideDown{from{opacity:0;transform:translateY(-4px)}
+  to{opacity:1;transform:none}}
+.panel-in{width:var(--shell);margin:0 auto;padding:14px 20px 16px;
+  display:flex;flex-direction:column;gap:11px}
+.prow{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.plabel{font-size:12.5px;color:var(--sub);min-width:32px;flex:none}
+.dash{color:var(--sub);font-size:12.5px}
+.hint{font-size:12px;color:#c2cad6;margin-left:2px}
+.switch{border:1px solid var(--line);background:#fff;color:var(--info);
+  border-radius:999px;padding:5px 13px;font-size:13px;cursor:pointer;
+  display:flex;align-items:center;gap:6px;user-select:none}
+/* 选中态用浅蓝底 + 主色文字，避免实心深色显得像异常状态 */
+.switch.on{background:var(--primary-pale);border-color:var(--primary-light);
+  color:var(--primary)}
+.switch.on i{background:var(--primary);opacity:1}
+.switch i{width:5px;height:5px;border-radius:50%;background:currentColor;
+  opacity:.55;font-style:normal}
+.switch.on i{opacity:1}
+.panel input[type=date],.panel select{
+  border:1px solid #E3EAF4;background:#fff;border-radius:10px;
+  padding:7px 11px;font-size:13px;color:var(--txt);outline:none;
+  transition:border-color .15s,box-shadow .15s}
+.panel select{cursor:pointer;min-width:112px;padding-right:26px;
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23979797' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center;
+  background-size:13px}
+.panel input[type=date]:hover,.panel select:hover{border-color:var(--primary-light)}
+.panel input:focus,.panel select:focus{border-color:var(--primary);
+  box-shadow:0 0 0 3px rgba(44,126,223,.10)}
+.btn-clear{border:1px solid #E3EAF4;background:#fff;color:var(--primary);
+  font-size:13px;cursor:pointer;padding:6px 13px;border-radius:10px;
+  margin-left:auto;transition:all .15s}
+.btn-clear:hover{background:var(--primary-pale);border-color:var(--primary-light)}
+.toolbar{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.toolbar input,.toolbar select{border:0;border-radius:6px;padding:7px 10px;font-size:13px;
+  background:rgba(255,255,255,.95);color:#222;min-width:0}
+.toolbar input{flex:1;min-width:150px}
+.toolbar .chk{display:flex;align-items:center;gap:5px;font-size:13px;color:#fff;
+  background:rgba(255,255,255,.18);border-radius:6px;padding:6px 10px;cursor:pointer;
+  user-select:none}
+.toolbar .chk input{cursor:pointer;margin:0}
+.toolbar .lbl{font-size:12.5px;color:#fff;opacity:.9;align-self:center}
+.toolbar input[type=date],.toolbar input[type=number]{
+  border:0;border-radius:6px;padding:6px 8px;font-size:13px;
+  background:rgba(255,255,255,.95);color:#222;width:auto;min-width:0}
+.toolbar input[type=number]{width:82px}
+.toolbar .clr{border:0;border-radius:6px;padding:6px 11px;font-size:13px;
+  cursor:pointer;background:rgba(255,255,255,.22);color:#fff}
+.toolbar .clr:hover{background:rgba(255,255,255,.34)}
+.wrap{width:var(--shell);margin:0 auto;padding:14px 20px}
+.card{background:var(--card);border-radius:var(--radius);padding:13px 15px;
+  margin-bottom:9px;cursor:pointer;transition:box-shadow .16s,transform .16s}
+/* 正文行宽交给外层容器控制；这里不再单独限制，
+   免得宽屏时正文比卡片窄一截、右边空一块 */
+.card:hover{box-shadow:0 4px 16px rgba(44,126,223,.10)}
+.who{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.avatar{width:32px;height:32px;border-radius:50%;background:#dfe4ea;object-fit:cover;flex:none}
+.avatar.ph{display:flex;align-items:center;justify-content:center;color:#fff;
+  font-size:13px;font-weight:600}
+.who .nm{font-size:13.5px;font-weight:600;color:var(--info)}
+.lv{font-size:10px;color:#fff;background:linear-gradient(135deg,#FFC46B,#F5A623);
+  border-radius:8px;padding:1.5px 7px;font-weight:700;letter-spacing:.2px}
+.who .tm{margin-left:auto;font-size:12px;color:var(--sub);white-space:nowrap}
+.title{font-size:16px;font-weight:600;line-height:1.45;margin-bottom:5px;
+  word-break:break-word;color:var(--txt)}
+.content{font-size:14.5px;color:var(--info);white-space:pre-wrap;word-break:break-word;
+  line-height:1.68;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.content.full{-webkit-line-clamp:unset;overflow:visible;display:block}
+.content.empty{color:var(--sub);font-style:normal;display:block}
+/* 对齐 App：post_preview_pic.dart —— 单图通栏、多图等宽方格，左对齐堆叠 */
+.imgs{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px;max-width:100%;align-items:flex-start}
+/* 单图：仿 OuterSinglePostPic，通栏 height 150，cover 顶对齐 */
+.imgs.one{
+  display:block;width:100%;max-width:100%;
+}
+.imgs.one img{
+  width:100%;height:150px;max-height:150px;
+  object-fit:cover;object-position:top;
+  aspect-ratio:auto;flex:none;border-radius:6px;
+  background:#eef1f5;display:block;cursor:zoom-in;
+}
+/* 多图：仿 OuterMultiPostPic，Row spaceBetween 的等宽方块 */
+.imgs.multi img{
+  width:calc(33.333% - 3px);max-width:calc(33.333% - 3px);
+  height:auto;aspect-ratio:1;flex:1 1 calc(33.333% - 3px);
+  min-width:0;object-fit:cover;
+  border-radius:6px;background:#eef1f5;display:block;cursor:zoom-in;
+}
+/* 失败图彻底不占位 */
+.imgs img[data-failed="1"]{display:none}
+.imgs .more-n{
+  flex:1 1 calc(33.333% - 3px);min-width:0;aspect-ratio:1;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--primary-pale);color:var(--primary);
+  font-size:12px;font-weight:600;border-radius:6px;
+}
+.meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px;
+  font-size:12.5px;color:var(--sub)}
+.tag{font-size:11.5px;border-radius:6px;padding:2px 8px;font-weight:600;
+  line-height:1.5}
+.tag.board{color:#fff}
+.tag.label{background:var(--bg);color:var(--sub)}
+.tag.solved{background:#e7f6ec;color:#2e9e6b}
+.tag.top{background:#fdeaea;color:#d04a4a}
+.tag.essence{background:#fff3d6;color:#b8791a}
+.tag.mine{background:#e6f0fd;color:#2b6cb0}
+.tag.fav{background:#fde8ef;color:#b83280}
+.tag.gone{background:#f0f0f2;color:#8a929c}
+.uncrawled{font-size:10.5px;color:#b9c2cf;margin-left:4px}
+.detail-meta{margin-top:8px;font-size:12px;color:var(--sub);display:flex;
+  align-items:center;gap:10px;flex-wrap:wrap}
+/* 收藏/点赞并入本行后，与 分享/图片 统一为紧凑尺寸（选中态色仍由 .act.on 控制） */
+.detail-meta .act{padding:4px 10px;font-size:12px}
+/* 点头像看 TA 的全部帖子 */
+.avatar-link{cursor:pointer;transition:transform .14s,box-shadow .14s}
+.avatar-link:hover{transform:scale(1.08);
+  box-shadow:0 0 0 3px rgba(44,126,223,.18)}
+.nm.clickable{cursor:pointer}
+.nm.clickable:hover{color:var(--primary);text-decoration:underline}
+
+/* 悬停昵称时浮出的 MP 编号小卡片 */
+.mp-pop{position:fixed;z-index:90;background:#fff;border-radius:10px;
+  box-shadow:0 6px 24px rgba(16,24,40,.16);padding:9px 12px;font-size:12.5px;
+  color:var(--txt);display:none;pointer-events:none;white-space:nowrap;
+  border:1px solid var(--line)}
+/* 指向昵称的小三角，让浮层归属一目了然 */
+.mp-pop::before{content:"";position:absolute;width:9px;height:9px;
+  background:#fff;left:-5px;top:50%;margin-top:-4.5px;
+  border-left:1px solid var(--line);border-bottom:1px solid var(--line);
+  transform:rotate(45deg)}
+.mp-pop.flip::before{left:auto;right:-5px;
+  border-left:0;border-bottom:0;
+  border-right:1px solid var(--line);border-top:1px solid var(--line)}
+.mp-pop.on{display:block;pointer-events:auto;animation:popIn .14s ease}
+@keyframes popIn{from{opacity:0;transform:translateY(-4px)}
+  to{opacity:1;transform:none}}
+.mp-pop .code{font-family:ui-monospace,Menlo,Consolas,monospace;
+  color:var(--primary);font-weight:600}
+.mp-pop .hint{color:var(--sub);font-size:11.5px;margin-left:6px}
+
+/* 悬停头像弹出的用户小卡片 */
+.user-pop{position:fixed;z-index:90;width:250px;background:#fff;border-radius:14px;
+  box-shadow:0 10px 32px rgba(16,24,40,.18);border:1px solid var(--line);
+  padding:14px;display:none;pointer-events:none}
+.user-pop.on{display:block;pointer-events:auto;animation:popIn .15s ease}
+.user-pop .urow2{display:flex;align-items:center;gap:11px}
+.user-pop .avatar,.user-pop .avatar.ph{width:44px;min-width:44px;height:44px;font-size:18px}
+.user-pop .un{font-size:14.5px;font-weight:700;color:var(--txt);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-pop .um{font-size:11.5px;color:var(--sub);margin-top:3px;
+  font-family:ui-monospace,Menlo,Consolas,monospace}
+.user-pop .ust{font-size:12px;color:var(--info);margin-top:9px;
+  display:flex;gap:10px;flex-wrap:wrap}
+.user-pop .uact{display:flex;gap:7px;margin-top:11px}
+.user-pop .ubtn{flex:1;border:0;border-radius:9px;padding:7px 0;font-size:12.5px;
+  font-weight:600;cursor:pointer;transition:background .14s}
+.user-pop .ubtn.fl{background:var(--bg);color:var(--info)}
+.user-pop .ubtn.fl.on{background:#fff0f2;color:#e06c75}
+.user-pop .ubtn.fl:hover{background:#e9eef6}
+/* 触屏端用户卡片里的跳转按钮（桌面靠点头像本身筛选，不需要它） */
+.user-pop .ubtn.go{background:var(--primary);color:#fff}
+.user-pop .ubtn.go:hover{background:#2069c4}
+
+/* 用户主页弹窗 */
+.usheet{max-width:720px;margin:0 auto;background:#fff;border-radius:16px;
+  overflow:hidden}
+.uhead{padding:16px 22px 18px;background:linear-gradient(135deg,
+  var(--primary) 0%,#4f96e8 100%);color:#fff}
+.urow{display:flex;align-items:center;gap:14px;margin-top:2px}
+.uinfo{flex:1;min-width:0}
+.followbtn{border:1.5px solid rgba(255,255,255,.75);background:transparent;
+  color:#fff;border-radius:999px;padding:7px 18px;font-size:13.5px;
+  font-weight:600;cursor:pointer;white-space:nowrap;flex:none;
+  transition:background .15s,color .15s}
+.followbtn:hover{background:rgba(255,255,255,.18)}
+.followbtn.on{background:#fff;color:var(--primary);border-color:#fff}
+.uhead .uavatar{width:64px;height:64px;border-radius:50%;border:3px solid rgba(255,255,255,.6);
+  object-fit:cover;background:#dfe4ea;display:block}
+.uhead .uavatar.ph{display:flex;align-items:center;justify-content:center;
+  font-size:26px;font-weight:600}
+.uhead .uname{font-size:19px;font-weight:700;margin-top:10px;display:flex;
+  align-items:center;gap:8px;flex-wrap:wrap}
+.uhead .ulv{font-size:11px;background:rgba(255,255,255,.24);border-radius:8px;
+  padding:2px 9px;font-weight:600}
+.uhead .ustat{font-size:12.5px;opacity:.92;margin-top:6px}
+/* 返回按钮独立成行：之前是绝对定位在右上角，与关注按钮重叠了 */
+.uhead .uback{border:0;cursor:pointer;background:rgba(255,255,255,.2);
+  color:#fff;border-radius:9px;padding:6px 13px;font-size:13px;
+  font-weight:600;margin-bottom:12px;display:inline-block}
+.uhead .uback:hover{background:rgba(255,255,255,.32)}
+.ulist{padding:8px 12px 16px;max-height:60vh;overflow-y:auto}
+.uitem{padding:12px 12px;border-radius:11px;cursor:pointer;transition:background .14s}
+.uitem:hover{background:var(--bg)}
+.uitem+.uitem{border-top:1px solid var(--line)}
+.uitem .ut{font-size:15px;font-weight:600;color:var(--txt);line-height:1.45}
+.uitem .uc{font-size:13.5px;color:var(--info);margin-top:4px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;white-space:pre-wrap}
+.uitem .um{font-size:12px;color:var(--sub);margin-top:7px;display:flex;
+  gap:12px;align-items:center;flex-wrap:wrap}
+.uitem .uboard{color:#fff;border-radius:5px;padding:1px 7px;font-size:11.5px;
+  font-weight:600}
+.uitem .uex{color:var(--sub);margin-left:auto;font-size:11.5px}
+.uempty{text-align:center;color:var(--sub);padding:40px 0;font-size:14px}
+.meta .counts{margin-left:auto;display:flex;gap:13px;white-space:nowrap;
+  color:var(--sub)}
+.meta .counts b{font-weight:600;color:var(--info);margin-left:2px}
+/* 搜索命中高亮 */
+mark.hl{background:linear-gradient(180deg,transparent 58%,#ffe08a 58%);
+  color:inherit;padding:0;border-radius:2px}
+.modal{position:fixed;inset:0;background:#f6f9fd;z-index:50;
+  display:none;overflow-y:auto;padding:0}
+.modal.on{display:block}
+/* 宽度自适应：宽屏最大 760px（一行太宽不利于阅读），
+   窄屏自动收缩并保留 24px 边距，不会贴边显得憋闷 */
+/* 顶部不留白：直接贴到屏幕最上，遮罩盖满整屏，
+   顶栏不会从缝里露出来干扰阅读 */
+/* 铺满整屏：读长帖时视野最大，也不会从两侧缝里露出顶栏 */
+.sheet{width:100%;min-height:100vh;margin:0;
+  background:#fff;border-radius:0;overflow:hidden}
+.sheet .head{border-bottom:1px solid var(--line);position:sticky;top:0;
+  background:#fff;z-index:2}
+/* 头部与正文都限宽居中：全屏背景铺满，但内容保持一行可读的宽度 */
+.sheet .head{display:block;padding:0}
+.sheet .head>.headin{max-width:min(92vw,1000px);margin:0 auto;
+  padding:15px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sheet .body{max-width:min(92vw,1000px);margin:0 auto;padding:20px 0 60px}
+.sheet .head .ttl{font-weight:600;font-size:15px}
+.back{border:0;background:transparent;color:var(--primary);font-size:13px;
+  cursor:pointer;padding:6px 8px;border-radius:8px;font-weight:600;
+  white-space:nowrap;flex:none}
+.back:hover{background:var(--primary-pale)}
+/* MP 号旁的小按钮：分享 / 导出 */
+.sharebtn,.dlbtn{border:1px solid var(--line);background:#fff;color:var(--info);
+  border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px;
+  display:inline-flex;align-items:center;gap:5px;
+  transition:all .14s;white-space:nowrap}
+.sharebtn:hover,.dlbtn:hover{border-color:var(--primary-light);
+  color:var(--primary);background:var(--primary-pale)}
+.dlbtn:disabled{opacity:.5;cursor:default}
+/* 导出选项弹窗 */
+.askbox{position:fixed;inset:0;z-index:120;display:none;
+  align-items:center;justify-content:center;background:rgba(20,24,30,.45)}
+.askbox.on{display:flex}
+.askmate{background:#fff;border-radius:16px;padding:22px 24px;width:min(92vw,360px);
+  box-shadow:0 20px 50px rgba(16,24,40,.28)}
+.askttl{font-size:16px;font-weight:700;color:var(--txt)}
+.asksub{font-size:13px;color:var(--sub);margin-top:7px;line-height:1.6}
+.askopts{display:flex;gap:9px;margin-top:16px}
+.askbtn{flex:1;border:1px solid var(--line);background:#fff;color:var(--info);
+  border-radius:10px;padding:10px 0;font-size:13px;font-weight:600;
+  cursor:pointer;transition:all .15s}
+.askbtn:hover:not(:disabled){border-color:var(--primary-light)}
+.askbtn.on{background:var(--primary-pale);border-color:var(--primary);
+  color:var(--primary)}
+.askbtn:disabled{opacity:.42;cursor:default}
+.askrow{display:flex;gap:9px;margin-top:20px}
+.askgo{flex:1;border:0;background:var(--primary);color:#fff;border-radius:10px;
+  padding:10px 0;font-size:13.5px;font-weight:600;cursor:pointer}
+.askgo:hover{background:#2069c4}
+.askcancel{border:0;background:var(--bg);color:var(--info);border-radius:10px;
+  padding:10px 16px;font-size:13.5px;cursor:pointer}
+.askcancel:hover{background:#e7ecf4}
+
+.toast{position:fixed;left:50%;bottom:38px;transform:translateX(-50%) translateY(12px);
+  background:rgba(30,36,48,.92);color:#fff;font-size:13.5px;padding:10px 18px;
+  border-radius:10px;opacity:0;pointer-events:none;transition:all .24s;z-index:99;
+  max-width:80vw;text-align:center}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.sheet .body{padding:20px 22px 60px}
+.sheet .body .content{-webkit-line-clamp:unset;overflow:visible}
+h3.sec{font-size:13px;color:var(--sub);font-weight:600;margin:18px 0 8px;
+  padding-bottom:6px;border-bottom:1px solid var(--line)}
+/* 评论工具栏：标题 + 排序按钮 */
+.cbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  margin:18px 0 8px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.cbar .sec{margin:0;border:0;padding:0}
+.csort{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+.cbtn{border:1px solid transparent;background:transparent;color:var(--sub);
+  border-radius:8px;padding:4px 11px;font-size:12.5px;cursor:pointer;
+  transition:all .14s;white-space:nowrap}
+.cbtn:hover{background:var(--bg);color:var(--info)}
+.cbtn.on{background:var(--primary-pale);color:var(--primary);
+  border-color:var(--primary-light);font-weight:600}
+.clist{margin-top:4px}
+
+.cmt{display:flex;gap:9px;padding:10px 0;border-bottom:1px solid #f2f4f7}
+.cmt:last-child{border-bottom:0}
+.cmt .avatar{width:30px;height:30px;font-size:13px}
+.cmt .cbody{flex:1;min-width:0}
+.cmt .cnm{font-size:13px;font-weight:600;color:#3a4149;display:flex;align-items:center;gap:6px}
+.cmt .cnm .op{font-size:10.5px;color:#fff;background:var(--primary);border-radius:8px;padding:1px 6px}
+.cmt .cnm .tm{font-weight:400;color:var(--sub);font-size:11.5px;margin-left:auto}
+.cmt .cc{font-size:14px;color:#333a42;white-space:pre-wrap;word-break:break-word;margin-top:2px}
+.cmt .reply-to{color:var(--primary);font-size:13px}
+.cmt img.one{max-width:132px;max-height:132px;border-radius:6px;margin-top:6px;cursor:zoom-in;display:block;
+  background:linear-gradient(90deg,#eef2f7 25%,#e3e9f1 37%,#eef2f7 63%);
+  background-size:400% 100%;animation:skShine 1.3s ease infinite}
+.cmt img.one[data-loaded="1"]{background:none;animation:none}
+.cmt.sub{margin-left:38px;padding-left:10px;border-left:2px solid #e9eef5}
+.cmt .ins{font-size:12px;color:var(--sub);margin-top:3px;display:flex;gap:12px}
+.cmt.official{background:#f7f9fc;border-radius:8px;padding:10px;border-bottom:0;margin-bottom:6px}
+.cmt.official .cnm{color:var(--primary)}
+.empty{text-align:center;color:var(--sub);padding:40px 0;font-size:14px}
+.zoom{position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:80;display:none;align-items:center;
+  justify-content:center;cursor:zoom-out}
+.zoom.on{display:flex}
+.zoom img{max-width:96vw;max-height:96vh;object-fit:contain}
+.loadmore{display:block;width:100%;border:0;background:#fff;border-radius:12px;
+  padding:13px;font-size:14px;color:var(--primary);cursor:pointer;
+  margin-bottom:10px;font-weight:600}
+.loadmore:hover{background:var(--primary-pale)}
+/* 回到顶部：滚过约两屏出现；z 取 45——高于 header(40) 不被盖、低于 .modal(50) 不挡弹窗 */
+.backtop{position:fixed;right:16px;bottom:30px;z-index:45;width:42px;height:42px;
+  border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--info);
+  box-shadow:0 6px 18px rgba(16,24,40,.14);cursor:pointer;display:none;
+  align-items:center;justify-content:center;padding:0}
+.backtop.on{display:flex}
+.backtop:hover{background:var(--primary-pale);color:var(--primary)}
+
+/* ============================================================
+   加载中的观感
+   ------------------------------------------------------------
+   以前只有一句「加载中…」文字，切换筛选时整片列表先变白再重新出现，
+   看着像卡住。这里改成：
+     - 骨架屏：用灰条占住卡片位置，明确「内容正在来」
+     - 顶部细进度条：不用等整页，操作立刻有反馈
+     - 旧内容保留到新内容就绪：只有第一次才显示骨架，之后原地替换
+   ============================================================ */
+/* 顶部细进度条：不确定进度，用一个来回滑动的高光表示"在跑" */
+.pbar{position:fixed;left:0;top:0;height:2.5px;width:100%;z-index:130;
+  pointer-events:none;opacity:0;transition:opacity .2s}
+.pbar.on{opacity:1}
+.pbar::before{content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,var(--primary) 0%,#6fb0f2 50%,var(--primary) 100%);
+  background-size:40% 100%;background-repeat:no-repeat;
+  animation:pbarSlide 1.05s ease-in-out infinite}
+@keyframes pbarSlide{
+  0%{background-position:-40% 0}
+  100%{background-position:140% 0}
+}
+/* 内容"正在变旧"时轻微降透明度，而不是直接消失 */
+#list.busy{opacity:.45;transition:opacity .18s}
+#list.busy .card{pointer-events:none}
+
+/* 骨架屏 */
+.skel{background:#fff;border-radius:var(--radius);padding:13px 15px;
+  margin-bottom:9px}
+.skel .sk{background:linear-gradient(90deg,#eef2f7 25%,#e3e9f1 37%,#eef2f7 63%);
+  background-size:400% 100%;animation:skShine 1.3s ease infinite;
+  border-radius:6px}
+@keyframes skShine{0%{background-position:100% 0}100%{background-position:0 0}}
+.skel .sk-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.skel .sk-av{width:32px;height:32px;border-radius:50%;flex:none}
+.skel .sk-nm{width:110px;height:13px}
+.skel .sk-tm{width:64px;height:11px;margin-left:auto}
+.skel .sk-ttl{height:17px;width:62%;margin-bottom:9px}
+.skel .sk-tx{height:12px;width:100%;margin-bottom:6px}
+.skel .sk-tx.s2{width:88%}
+.skel .sk-tx.s3{width:54%}
+.skel .sk-meta{height:20px;width:210px;margin-top:12px}
+/* 减少动效偏好：尊重系统设置，不做闪烁动画 */
+@media (prefers-reduced-motion:reduce){
+  .skel .sk{animation:none}
+  .pbar::before{animation:none;background-position:0 0}
+  .pbar.on{opacity:1}
+}
+
+/* 图片未就绪时的占位底色：避免出现刺眼白块/高度跳动 */
+.imgs img{background:linear-gradient(90deg,#eef2f7 25%,#e3e9f1 37%,#eef2f7 63%);
+  background-size:400% 100%;animation:skShine 1.3s ease infinite}
+.imgs img[data-loaded="1"]{background:none;animation:none}
+
+/* 详情加载失败：给可点的重试，而不是只弹个提示 */
+.failbox{text-align:center;padding:56px 20px;color:var(--sub)}
+.failbox .fmsg{font-size:14.5px;color:var(--info);margin-bottom:6px}
+.failbox .fsub{font-size:12.5px;color:var(--sub);margin-bottom:18px}
+.failbox .fretry{border:0;background:var(--primary);color:#fff;border-radius:10px;
+  padding:9px 22px;font-size:13.5px;font-weight:600;cursor:pointer}
+.failbox .fretry:hover{background:#2069c4}
+
+@media(max-width:600px){
+  .wrap{padding:10px 12px}
+  .top{padding:10px 12px 8px;gap:8px}
+  .tabbar{padding:0 12px 10px;gap:12px}
+  .chip{font-size:13px}
+  .switch.tiny{padding:3.5px 9px;font-size:12.5px}
+  .fbav,.fbav .avatar,.fbav .avatar.ph{width:26px;min-width:26px;height:26px}
+  .fbav{flex:0 0 26px}
+  .panel-in{padding:12px}
+  .brand{font-size:15px}
+  .card{padding:12px 13px;border-radius:12px}
+  .title{font-size:15.5px}
+  .content{font-size:14px;-webkit-line-clamp:5}
+  .imgs.n1{max-width:100%}
+  .imgs img{max-height:280px}
+  .modal{padding:0}
+  .sheet{width:100%;border-radius:0}
+  .sheet .head{padding:12px 14px}
+  .sheet .body{padding:14px 14px 18px}
+  .cmt.sub{margin-left:18px}
+  .uhead{padding:14px 16px 16px}
+  .urow{gap:11px}
+  .followbtn{padding:6px 14px;font-size:13px}
+  /* 计数行独占一行，不再与分区标签挤在一起 */
+  .meta{gap:6px}
+  .meta .counts{margin-left:0;width:100%;justify-content:flex-start;
+    gap:18px;margin-top:6px;padding-top:7px;border-top:1px solid var(--line)}
+  .meta .counts span{display:flex;align-items:center}
+}
+
+/* ---- 桌面：单列窄栏阅读，禁止双列大图（会把浏览器拖到无响应） ---- */
+@media(min-width:1024px){
+  :root{--shell:min(94vw,760px)}
+  .wrap{padding:18px 16px 48px}
+  #list{display:block}
+  .card{
+    margin:0 0 12px;
+    min-width:0;
+  }
+  .card:hover{transform:none}
+  .card .content{-webkit-line-clamp:6}
+  .sheet .body,.sheet .head>.headin{max-width:min(92vw,820px)}
+  .sheet .body{padding:24px 0 72px}
+  .sheet .body .content{font-size:15px;line-height:1.75}
+  .wrap .imgs img{animation:none}
+  /* 桌面通栏单图可略高一点，仍与 App 同为 cover 顶对齐 */
+  .imgs.one img{height:180px;max-height:180px}
+}
+
+/* 超宽屏：双列足够，顶栏/列表不再无限拉宽 */
+@media(min-width:1600px){
+  :root{--shell:1180px}
+}

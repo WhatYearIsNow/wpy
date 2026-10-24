@@ -1,0 +1,12 @@
+include CHANGELOG.md
+include ask.py
+include .gitignore
+recursive-include docs *.md
+recursive-include scripts *.py
+recursive-include tools *.py
+recursive-include tests *.py
+recursive-exclude pages *
+recursive-include pages *.example.json *.md
+recursive-include deploy *.md *.example *.service *.timer Caddyfile
+recursive-include .github/workflows *.yml
+global-exclude __pycache__ *.py[cod]
