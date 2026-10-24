@@ -53,6 +53,7 @@ python scripts/check_public_source.py # 检查候选发布源码
 
 ### 文档
 
+- [项目状态与后续接续](docs/PROJECT_STATE.md) — 当前约定、GitHub 跟踪方式与维护入口
 - [架构文档](docs/ARCHITECTURE.md) — 系统架构、模块说明、数据模型
 - [开发指南](docs/DEVELOPMENT.md) — 开发流程、编码规范、配置说明
 - [变更日志](CHANGELOG.md) — 所有重要变更记录

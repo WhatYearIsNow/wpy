@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIRS = {"wpy", "scripts", "tests", "tools", "deploy", "docs", "pages", ".github"}
 SOURCE_FILES = {
     "README.md", "LICENSE", "CHANGELOG.md", "CONTRIBUTING.md", "pyproject.toml",
-    "MANIFEST.in", ".gitignore", ".gitattributes", "ask.py",
+    "MANIFEST.in", ".gitignore", ".gitattributes", "ask.py", "AGENTS.md",
 }
 PRIVATE_DIRS = {
     ".git", ".backup", "data", "build", "dist", "logs", "__pycache__",

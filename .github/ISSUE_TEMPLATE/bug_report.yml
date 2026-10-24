@@ -1,0 +1,31 @@
+name: 缺陷报告
+description: 记录可复现的问题及预期行为
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "请使用示例数据描述问题，不填写账号、密码、令牌或真实论坛内容。"
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 问题与预期行为
+      description: 实际发生了什么，预期应该怎样？
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 提供最小复现步骤或使用示例数据的命令。
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 操作系统、Python 版本和提交版本。
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 已脱敏的验证信息
+      description: 可填写错误类别和必要日志；提交前移除个人信息及凭据。

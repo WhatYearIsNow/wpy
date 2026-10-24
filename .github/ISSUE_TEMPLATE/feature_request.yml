@@ -1,0 +1,24 @@
+name: 需求建议
+description: 记录目标、使用场景与验收标准
+title: "[Feature] "
+body:
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景与问题
+      description: 谁在什么情况下遇到了什么问题？使用通用示例说明。
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 希望得到的结果
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 如何确认需求已经完成？
+    validations:
+      required: true

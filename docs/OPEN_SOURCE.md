@@ -2,18 +2,35 @@
 
 代码采用 MIT 许可证，见根目录 `LICENSE`。开发与测试步骤见 [开发指南](DEVELOPMENT.md)。
 
-## 当前仓库与发布源码
+## 当前仓库与版本沿革
 
-本地开发仓库的早期提交曾包含内置 API 密钥和固定热榜令牌。当前源码已去掉这些值，
-旧提交仍保留在本地历史中。首次公开发布时，应从当前源码快照建立新的 Git 仓库，
-不要直接推送现有开发仓库的历史。
+WPY 已统一到当前 GitHub 仓库，`main` 是最新版本，前身的脱敏历史保留在
+`history/snatch-wpy`，并接入主线提交图。详见[项目沿革](PROJECT_HISTORY.md)。
+
+当前仓库保持私有。未来公开时，在现有仓库完成检查后由维护者决定修改可见性，
+不需要再建立一个平行项目、重建 Git 仓库或改写现有干净历史。
+
+未经修改的旧历史可能含早期密钥和本地内容，只保存在本机私有恢复资料中。
+不要把这些原始 Git 对象或运行资料导入当前分支。
+
+## 未来公开前的检查
 
 ```bash
-python scripts/check_public_source.py
+git status --short --branch
+python scripts/check_public_source.py --history
 python -m pytest
 python tools/offline_stage_smoke.py
 python -m build
 ```
+
+核对 GitHub 当前 `main` 的 CI，而不是引用一次旧成功记录；审阅新增文件和所有可见分支。
+检查源码、提交身份、发行包、Issue 与 PR 附件中是否包含实际账号、密钥或论坛内容。
+模板必须使用空数据，部署示例只写配置项或占位说明。扫描器提供常见模式检查，仍需审阅内容。
+
+准备好具体版本、验证结果和变更范围后，再按维护者的明确指令执行公开操作。
+用户仍要求私有时，保持私有。
+
+## 可选的源码快照导出
 
 导出工具按源码目录白名单复制当前工作树，包含尚未提交的源码改动。它会排除 `.git/`、
 数据库、图片、日志、备份、虚拟环境和真实环境文件，并在临时目录重新检查源码。
@@ -27,21 +44,8 @@ python scripts/export_public_source.py --output ../wpy-public-source
 私有文件，不能替代对新增文件内容的审阅。`pages/` 的真实 JSON 内容可能含作者、账号、
 正文和联系信息，属于本地数据；导出目录只保留 `pages/README.md`、空的
 `*.example.json` 模板与部署示例，不包含真实页面内容、论坛数据库、评论或图片。
-
-## 建立 GitHub 仓库
-
-先检查导出目录，再在其中建立新的提交历史：
-
-```bash
-cd ../wpy-public-source
-git init -b main
-git add .
-git diff --cached --stat
-git commit -m "Initial open-source release"
-```
-
-在 GitHub 创建空仓库后，将其远程地址配置到这份新仓库，再推送 `main`。
-以上步骤面向首次公开发布；本地开发仓库与其旧历史保持原样。
+`AGENTS.md` 与项目文档随快照保留；本机工作区记忆不随源码导出。
+快照是交付副本，不作为新的开发主线。需要完整干净历史时，可从当前仓库创建 Git bundle。
 
 ## 现有部署升级
 
