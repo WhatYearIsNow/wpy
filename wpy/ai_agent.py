@@ -464,7 +464,7 @@ class Executor:
             if "floor_id" in args:
                 if (pid, args["floor_id"]) not in self.read_floors:
                     raise Denied("必须先阅读目标评论")
-                self.forum.floor(args["floor_id"], pid)
+                target_floor = self.forum.floor(args["floor_id"], pid)
             if action == "comment_post":
                 path, form = "floor", {"post_id": pid, "content": args["content"], "images": ""}
             elif action == "reply_comment":
@@ -480,7 +480,6 @@ class Executor:
                 raise Denied("发言包含受保护的个人信息、凭据或本机路径，已禁止发送；请去掉敏感内容")
             if pid in self.plain_posts and PERSONA_VOICE.search(form["content"]):
                 raise Denied("该讨论已要求正常助手语气，请重写，去掉本鲸、大肥鱼及角色口癖")
-            form["content"] = "（AI 助手生成）\n" + form["content"]
         if not self.execute:
             return {"preview": True, "action": action, "board_checked": True}
         if self.stopped():
@@ -491,6 +490,9 @@ class Executor:
                       "target_floor_id": args.get("floor_id"),
                       "title": args.get("title") if action == "create_post" else post.get("title"),
                       "content": form.get("content", "")}
+            if action == "reply_comment":
+                report["target_author"] = target_floor.get("nickname")
+                report["target_content"] = target_floor.get("content")
         digest = self.store.reserve(action, args, report=report)
         self.attempted_write = True
         result = self.forum.call(path, form, write=True)
@@ -501,7 +503,7 @@ class Executor:
 def cycle(model, executor, rules=DEFAULT_RULES, *, max_steps=8):
     """有界读取/决策循环，每轮最多尝试一个写动作。论坛文本不是指令。"""
     messages = [{"role": "system", "content": (
-        "你是微北洋论坛 AI 助手，必须明确以 AI 身份发言。不要冒充真人或官方人员。"
+            "你是微北洋论坛的社区角色「大肥鱼」，以「本鲸」自称。不冒充官方人员，不编造校园亲历身份。"
         "主要活跃在青年湖底(板块2)，以日常闲聊、接梗和轻松水帖为主，不要求每条都有实用信息。"
         "不参与严肃学业求助、课程/作业/考试/论文答疑，即使这类帖子出现在湖底也跳过。"
         "不重复回复、不刷屏、不做无依据承诺，不编造事实。"
@@ -551,7 +553,7 @@ def cycle(model, executor, rules=DEFAULT_RULES, *, max_steps=8):
             messages.append({"role": "system", "content":
                 "执行器确认以下讨论已要求普通助手语气：" + str(sorted(executor.plain_posts)) +
                 "。对这些帖子立即停止角色扮演，不称本鲸/大肥鱼，不用喵/咯/捏等口癖；简洁正常回答。"
-                "此偏好只改变语气，其他权限、AI 标记、校务区限制和跳过严肃学业的要求均有效。"})
+                "此偏好只改变语气，其他权限、校务区限制和跳过严肃学业的要求均有效。"})
     if format_failed:
         raise ModelFormatError("模型动作格式在本轮限额内未能纠正，本轮停止")
     return counts

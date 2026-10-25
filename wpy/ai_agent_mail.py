@@ -18,6 +18,8 @@ LABELS = {
     "stopped": "大肥鱼下班了", "error": "大肥鱼这轮遇到问题",
     "test": "大肥鱼邮件通知测试",
 }
+CONTENT_LABELS = {"create_post": "帖子内容", "comment_post": "大肥鱼评论的内容",
+                  "reply_comment": "大肥鱼回复的内容"}
 TZ = timezone(timedelta(hours=8))
 
 
@@ -69,14 +71,18 @@ def render(event):
         rows.append(("结果", "请求结果未确认，不会自动重发论坛动作" if unknown else "论坛已接受该操作"))
     if event.get("post_id"):
         rows.append(("帖子", "#MP" + str(event["post_id"])))
-    if event.get("floor_id"):
-        rows.append(("评论编号", str(event["floor_id"])))
-    if event.get("target_floor_id"):
-        rows.append(("互动目标评论", str(event["target_floor_id"])))
     if event.get("title"):
         rows.append(("帖子标题", event["title"]))
+    if event.get("target_author"):
+        rows.append(("被回复者", event["target_author"]))
+    if event.get("target_content"):
+        rows.append(("原评论", event["target_content"]))
+    if event.get("floor_id") and kind != "reply_comment":
+        rows.append(("评论编号", str(event["floor_id"])))
+    if event.get("target_floor_id") and not event.get("target_content"):
+        rows.append(("互动目标评论", str(event["target_floor_id"])))
     if event.get("content"):
-        rows.append(("大肥鱼发出的内容", event["content"]))
+        rows.append((CONTENT_LABELS.get(kind, "大肥鱼发出的内容"), event["content"]))
     if "reads" in event:
         rows.append(("浏览", f"本轮读取 {event['reads']} 次；没有新增论坛互动"))
     if event.get("posts"):

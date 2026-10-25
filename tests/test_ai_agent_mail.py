@@ -46,7 +46,10 @@ def test_each_action_generates_exactly_one_truthful_report(setup, action, args):
     assert subject == mail.LABELS[action] and subject.startswith("大肥鱼")
     assert "论坛已接受该操作" in text
     if action in ai.SPEECH:
-        assert args["content"] in text and "（AI 助手生成）" in text
+        assert args["content"] in text and "AI 助手生成" not in text
+    if action == "reply_comment":
+        assert "被回复者：合成昵称" in text and "原评论：合成评论" in text
+        assert "大肥鱼回复的内容" in text
     if action != "create_post":
         assert "#MP101" in text
     assert "test_personal_token" not in text and "test_remote_secret" not in text
@@ -235,11 +238,22 @@ def test_returned_post_number_is_available_for_mail_without_raw_response(data):
 def test_reply_mail_distinguishes_target_and_new_comment(setup):
     _, _, store, _ = setup
     digest = store.reserve("reply_comment", {"floor_id": 11}, report={
-        "post_id": 101, "target_floor_id": 11, "floor_id": 11, "content": "合成回复"})
+        "post_id": 101, "target_floor_id": 11, "floor_id": 11, "content": "合成回复",
+        "target_author": "合成昵称", "target_content": "合成评论"})
     store.finish(digest, {"floor_id": 12})
     event = json.loads(store.db.execute("SELECT payload FROM agent_mail").fetchone()[0])
     assert event["target_floor_id"] == 11 and event["floor_id"] == 12
-    assert "互动目标评论：11" in mail.render(event)[1]
+    subject, text, _ = mail.render(event)
+    assert "被回复者：合成昵称" in text and "原评论：合成评论" in text
+    assert "大肥鱼回复的内容：合成回复" in text and "互动目标评论" not in text
+
+
+def test_reply_mail_without_context_keeps_target_floor_row(setup):
+    _, _, store, _ = setup
+    digest = store.reserve("reply_comment", {"floor_id": 11}, report={
+        "post_id": 101, "target_floor_id": 11, "floor_id": 11, "content": "合成回复"})
+    event = json.loads(store.db.execute("SELECT payload FROM agent_mail").fetchone()[0])
+    assert "互动目标评论：11" in mail.render(event)[1] and "被回复者" not in mail.render(event)[1]
 
 
 def test_cli_reports_sent_text_by_email_without_logging_it(monkeypatch, tmp_path, capsys):

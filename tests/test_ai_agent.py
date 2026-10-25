@@ -47,7 +47,7 @@ class Remote:
                               "sub_floors": [{"id": 12, "post_id": 101, "content": "合成子评论"}]}]}
         elif path.endswith("/floor") or path == "floor":
             data = {"floor": {"id": int(parse_qs(urlsplit(url).query)["floor_id"][0]),
-                               "post_id": self.floor_post, "content": "合成评论"}}
+                               "post_id": self.floor_post, "nickname": "合成昵称", "content": "合成评论"}}
         else:
             data = {"post": {"id": 101, "type": self.board, "title": "合成问题", "content": self.post_content,
                               "token": "test_private_token_should_not_leak", "uid": 99}}
@@ -91,7 +91,7 @@ def test_allowed_actions_use_only_explicit_account_and_safe_fields(setup, action
     url, form = remote.writes[0]
     assert url.endswith("/" + endpoint)
     if action in ai.SPEECH:
-        assert form["content"] == ["（AI 助手生成）\n合成正文"]
+        assert form["content"] == ["合成正文"]
     else:
         assert form["op"] == ["1"]
     assert store.db.execute("SELECT status FROM actions").fetchone() == ("sent",)
