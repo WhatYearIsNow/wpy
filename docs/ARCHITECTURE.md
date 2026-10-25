@@ -95,6 +95,8 @@
 | `notification_mail.py` | course 兼容 SMTP 配置、邮件渲染及标准库发送 |
 | `notification_cli.py` | 五分钟后台检查、单次合成测试与只补发入口 |
 | `ask.py` | 智能问答（AI API 集成） |
+| `ai_agent.py` | 天大模型自主动作、校务区限制、目标校验、持久化去重与额度 |
+| `ai_agent_cli.py` | 独立本人账号的单轮预演、真实执行、常驻启停 |
 | `ui_templates/` | 前端 CSS/JS 模板 |
 
 ## 4. 数据模型

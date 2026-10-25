@@ -102,6 +102,8 @@ def build_parser():
     hv.add_argument("--token", type=str, default=None,
                     help="访问口令；默认读环境变量 WPY_BOARD_TOKEN")
     sub.add_parser("whoami", help="查看当前用的是哪个账号（密码不显示）")
+    from ..ai_agent_cli import add_parser as add_agent_parser
+    add_agent_parser(sub)
     a = sub.add_parser("ask", help="学习板块智能问答（需 .tju_key）")
     a.add_argument("question", nargs="+", help="要问的问题")
     a = add_common(sub.add_parser(
@@ -169,6 +171,9 @@ def main(argv=None):
     if args.cmd == "whoami":
         do_whoami()
         return
+    if args.cmd == "agent":
+        from ..ai_agent_cli import main as agent_main
+        return agent_main(args)
     if args.cmd == "ask":
         from ..ask import main as ask_main
         sys.argv = ["wpy", "ask"] + args.question  # 传给 ask.py 的 sys.argv[1:]

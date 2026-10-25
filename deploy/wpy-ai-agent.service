@@ -1,0 +1,31 @@
+[Unit]
+Description=WPY autonomous AI forum assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wpy
+# 发布时使用独立 wheel 安装环境，并覆盖 ExecStart 指向该环境的 Python。
+WorkingDirectory=/var/lib/wpy-ai-agent
+ExecStart=/usr/bin/python3 -m wpy agent --watch --execute
+Environment=PYTHONUNBUFFERED=1
+Environment=WPY_DATA_DIR=/var/lib/wpy-ai-agent/runtime/data
+Environment=WPY_BUILD_DIR=/var/lib/wpy-ai-agent/runtime/build
+Environment=WPY_LOG_DIR=/var/lib/wpy-ai-agent/runtime/logs
+Environment=WPY_PAGES_DIR=/var/lib/wpy-ai-agent/runtime/pages
+Environment=WPY_AI_STATE_DIR=/var/lib/wpy-ai-agent/state
+EnvironmentFile=/etc/wpy/ai-agent.env
+# 认证失败需要维护者处理，不能由 systemd 无限续登。
+Restart=no
+TimeoutStopSec=150
+StateDirectory=wpy-ai-agent
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
