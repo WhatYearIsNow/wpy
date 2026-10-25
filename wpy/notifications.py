@@ -29,6 +29,10 @@ class AuthenticationError(NotificationError):
     pass
 
 
+class ContentUnavailable(NotificationError):
+    pass
+
+
 class RateLimited(NotificationError):
     def __init__(self, delay=900):
         super().__init__("论坛接口限流，已延后检查")
@@ -45,9 +49,12 @@ class ForumClient:
         self.token = None
 
     def _page(self, kind, page):
-        return self._request_page(kind, page, renew=True)
+        data = self._data("message/" + kind, {"page": page, "page_size": PAGE_SIZE})
+        if not isinstance(data.get("list"), list):
+            raise NotificationError("论坛消息响应异常，本轮未更新消息基线")
+        return data["list"]
 
-    def _request_page(self, kind, page, *, renew):
+    def _data(self, path, params, *, renew=True):
         if not self.token:
             try:
                 self.token = self.token_factory()
@@ -55,8 +62,7 @@ class ForumClient:
                     raise ValueError("missing token")
             except Exception:
                 raise AuthenticationError("论坛登录失败，请检查个人账号和 API 登录配置") from None
-        url = LAKE_API + "message/" + kind + "?" + urlencode(
-            {"page": page, "page_size": PAGE_SIZE})
+        url = LAKE_API + path + "?" + urlencode(params)
         try:
             response = self.request(url, token=self.token, timeout=30, throttle=False,
                                     max_bytes=2 * 1024 * 1024)
@@ -66,10 +72,12 @@ class ForumClient:
             error.close()
             if error.code == 401 and renew:
                 self.token = None
-                return self._request_page(kind, page, renew=False)
+                return self._data(path, params, renew=False)
             if error.code in (401, 403):
                 self.token = None
                 raise AuthenticationError("论坛登录或访问权限已失效，请重新配置认证") from None
+            if error.code == 404:
+                raise ContentUnavailable("内容已删除或不可访问") from None
             raise NotificationError("论坛请求失败，本轮未更新消息基线") from None
         except (OSError, ValueError, RuntimeError):
             raise NotificationError("论坛请求失败，本轮未更新消息基线") from None
@@ -78,16 +86,56 @@ class ForumClient:
         code = response.get("code")
         if code == 401 and renew:
             self.token = None
-            return self._request_page(kind, page, renew=False)
+            return self._data(path, params, renew=False)
         if code in (401, 403):
             self.token = None
             raise AuthenticationError("论坛登录或访问权限已失效，请重新配置认证")
         if code == 429:
             raise RateLimited()
+        if code == 404:
+            raise ContentUnavailable("内容已删除或不可访问")
         data = response.get("data")
-        if code != 200 or not isinstance(data, dict) or not isinstance(data.get("list"), list):
+        if code != 200 or not isinstance(data, dict):
             raise NotificationError("论坛消息响应异常，本轮未更新消息基线")
-        return data["list"]
+        return data
+
+    def enrich(self, events):
+        """只为将要发信的新互动补齐上下文，同帖/同评论在本轮只读取一次。"""
+        posts, floors = {}, {}
+        for event in events:
+            post_id = event["post_id"]
+            if (not event.get("post_content") or not event.get("title")
+                    or event.get("post_likes") is None):
+                if post_id not in posts:
+                    self.sleep(1)
+                    try:
+                        post = self._data("post", {"id": post_id}).get("post")
+                        if not isinstance(post, dict):
+                            raise NotificationError("帖子上下文响应异常，本轮未更新消息基线")
+                        posts[post_id] = post
+                    except ContentUnavailable:
+                        posts[post_id] = {"content": "[帖子已删除或不可访问]"}
+                post = posts[post_id]
+                event["title"] = _text(post.get("title"), 500) or event.get("title", "")
+                event["post_content"] = _text(post.get("content"), 8000) or "[纯图片帖子或正文为空]"
+                if post.get("like_count") is not None:
+                    event["post_likes"] = _number(post["like_count"])
+            floor_id = event.get("my_comment_id")
+            if floor_id and (not event.get("my_comment") or event.get("my_comment_likes") is None):
+                if floor_id not in floors:
+                    self.sleep(1)
+                    try:
+                        floor = self._data("floor", {"floor_id": floor_id}).get("floor")
+                        if not isinstance(floor, dict):
+                            raise NotificationError("原评论上下文响应异常，本轮未更新消息基线")
+                        floors[floor_id] = floor
+                    except ContentUnavailable:
+                        floors[floor_id] = {"content": "[原评论已删除或不可访问]"}
+                floor = floors[floor_id]
+                event["my_comment"] = _text(floor.get("content"), 4000) or "[图片评论或内容为空]"
+                if floor.get("like_count") is not None:
+                    event["my_comment_likes"] = _number(floor["like_count"])
+        return events
 
     def snapshot(self):
         # 不用未读数作唯一依据；官方客户端读消息后，未读数可能不变而内容已变。
@@ -128,7 +176,8 @@ def _number(value, *, positive=False):
 
 
 def _text(value, limit=1000):
-    return str(value or "")[:limit]
+    value = str(value or "")
+    return value if len(value) <= limit else value[:limit] + "\n[内容过长，已节选]"
 
 
 def normalize(source, row):
@@ -141,22 +190,32 @@ def normalize(source, row):
         post = row.get("post") or {}
         floor = row.get("floor") or {}
         event = {"post_id": _number(post.get("id") or floor.get("post_id"), positive=True),
-                 "title": _text(post.get("title"), 240)}
+                 "title": _text(post.get("title"), 500),
+                 "post_content": _text(post.get("content"), 8000),
+                 "post_likes": _number(post["like_count"]) if post.get("like_count") is not None else None}
         if source == "likes":
             target = post if kind_type == 0 else floor
             event.update(kind="post_like" if kind_type == 0 else "floor_like",
                          target_id=_number(target["id"], positive=True),
                          likes=_number(target["like_count"]),
-                         content=_text(target.get("content")) if kind_type == 1 else "")
+                         content=_text(target.get("content"), 4000) if kind_type == 1 else "")
+            if kind_type == 1:
+                event.update(my_comment=event["content"], my_comment_id=event["target_id"],
+                             my_comment_likes=event["likes"])
         else:
             original = row.get("to_floor") or {}
             event.update(kind="post_comment" if kind_type == 0 else "comment_reply",
                          target_id=_number(floor["id"], positive=True), likes=0,
                          author=_text(floor.get("nickname"), 80),
                          time=_text(floor.get("created_at"), 80),
-                         content=_text(floor.get("content")) or
+                         content=_text(floor.get("content"), 4000) or
                          ("[图片评论]" if floor.get("image_url") else "[内容已不可用]"),
-                         original=_text(original.get("content"), 400))
+                         original=_text(original.get("content"), 4000))
+            if kind_type == 1:
+                event.update(my_comment=event["original"],
+                             my_comment_id=_number(original.get("id", 0)),
+                             my_comment_likes=_number(original["like_count"])
+                             if original.get("like_count") is not None else None)
         return event
     except (KeyError, TypeError, ValueError, AttributeError):
         raise NotificationError("消息字段异常，本轮未更新消息基线") from None
@@ -257,6 +316,21 @@ class NotificationStore:
                             (self.now() - 30 * 86400,))
             return {"baseline": not bool(initialized), "new": len(changes)}
 
+    def new_events(self, events):
+        if not self.db.execute("SELECT 1 FROM meta WHERE key='initialized'").fetchone():
+            return []
+        changes = []
+        for event in events:
+            row = self.db.execute("SELECT likes FROM seen WHERE kind=? AND target_id=?",
+                                  (event["kind"], event["target_id"])).fetchone()
+            if event["kind"] in ("post_like", "floor_like"):
+                changed = event["likes"] > (row[0] if row else 0)
+            else:
+                changed = row is None
+            if changed:
+                changes.append(event)
+        return changes
+
     def deliver(self, sender, *, limit=10):
         sent = failed = 0
         rows = self.db.execute("SELECT * FROM outbox WHERE sent IS NULL AND due <= ? "
@@ -286,6 +360,7 @@ def run_cycle(client, store, sender, base_url=""):
     # 先补发队列；论坛接口不可用时也不能阻塞已持久化的邮件。
     delivery = store.deliver(sender)
     snapshot = client.snapshot()
+    client.enrich(store.new_events(snapshot))
     result = store.ingest(snapshot, base_url)
     if not delivery["failed"]:
         extra = store.deliver(sender)

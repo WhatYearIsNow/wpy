@@ -26,10 +26,10 @@ def offline(monkeypatch):
 
 def message(source="floors", kind_type=0, target=11, likes=2, **extra):
     row = {"type": kind_type,
-           "post": {"id": 101, "title": "示例帖子", "like_count": likes},
+           "post": {"id": 101, "title": "示例帖子", "content": "示例帖子正文", "like_count": likes},
            "floor": {"id": target, "post_id": 101, "nickname": "示例用户", "content": "示例评论",
                      "like_count": likes, "created_at": "2026-01-01T12:00:00"},
-           "to_floor": {"id": 10, "content": "示例原评论"}, "is_read": False}
+           "to_floor": {"id": 10, "content": "示例原评论", "like_count": 3}, "is_read": False}
     row.update(extra)
     return row
 
@@ -54,6 +54,7 @@ def test_official_message_type_mapping(source, kind_type, expected):
     result = event(source, kind_type)
     assert result["kind"] == expected
     assert result["post_id"] == 101
+    assert result["post_content"] == "示例帖子正文"
     if expected == "comment_reply":
         assert result["original"] == "示例原评论"
 
@@ -266,13 +267,97 @@ def test_pending_email_can_send_while_forum_is_unavailable(store):
 
 def test_html_is_escaped_and_mail_has_no_remote_images():
     item = dict(event(kind_type=1), title='<script>alert("test")</script>', content='<img src="test">',
-                original="<b>原评论</b>", increase=0)
+                original="<b>原评论</b>", my_comment="<b>原评论</b>", increase=0)
     subject, text, body = mail.render_digest([item], "https://board.example.invalid/", test=True)
     assert "测试" in subject and "合成内容" in text
     assert "<script>" not in body and "<img " not in body
     assert "&lt;script&gt;" in body and "&lt;b&gt;原评论" in body
     assert 'href="https://board.example.invalid/?postId=101"' in body
     assert "wpytoken" not in body
+
+
+@pytest.mark.parametrize("index", range(4))
+def test_standard_template_contains_post_context_and_specific_interaction(index):
+    item = mail.test_events()[index]
+    subject, text, body = mail.render_digest([item])
+    for label in ("帖子编号", "帖子标题", "帖子正文", "帖子点赞"):
+        assert label in text and label in body
+    assert f"#MP{item['post_id']}" in subject
+    assert item["title"] in text and item["post_content"] in text
+    if item["kind"] in ("floor_like", "comment_reply"):
+        assert "我的评论" in text and item["my_comment"] in text
+        assert "评论点赞：4 赞" in text
+    if item["kind"] in ("post_comment", "comment_reply"):
+        assert f"回复人：{item['author']}" in text
+        assert f"回复详情：{item['content']}" in text
+        assert f"回复时间：{item['time']}" in text
+
+
+def test_long_context_is_explicitly_marked_as_excerpt():
+    row = message()
+    row["post"]["content"] = "示例正文" * 3000
+    item = normalize("floors", row)
+    assert "已节选" in item["post_content"]
+    assert len(item["post_content"]) < 8100
+
+
+def test_enrichment_only_reads_new_context_once_per_post_and_floor(store):
+    store.ingest([])
+    first = event(kind_type=1, target=21)
+    second = event(kind_type=1, target=22)
+    for item in (first, second):
+        item.update(post_content="", my_comment="", my_comment_likes=None)
+    calls = []
+
+    def request(url, **kwargs):
+        calls.append(url)
+        if "/post?" in url:
+            return {"code": 200, "data": {"post": {"id": 101, "title": "完整标题",
+                                                     "content": "完整帖子正文", "like_count": 9}}}
+        assert "/floor?" in url
+        return {"code": 200, "data": {"floor": {"id": 10, "content": "我的完整评论", "like_count": 5}}}
+
+    client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
+    assert client.enrich(store.new_events([first, second])) == [first, second]
+    assert len(calls) == 2
+    assert first["post_content"] == "完整帖子正文"
+    assert second["my_comment"] == "我的完整评论" and second["my_comment_likes"] == 5
+    store.ingest([first, second])
+    assert client.enrich(store.new_events([first, second])) == []
+    assert len(calls) == 2
+
+
+def test_missing_context_is_not_fetched_during_first_baseline(store):
+    item = event()
+    item["post_content"] = ""
+    client = ForumClient(lambda: pytest.fail("首次基线不应补读上下文"))
+    assert client.enrich(store.new_events([item])) == []
+    assert store.ingest([item])["baseline"]
+
+
+def test_deleted_post_context_is_reported_without_dropping_notification(store):
+    store.ingest([])
+    item = event()
+    item["post_content"] = ""
+    client = ForumClient(lambda: "test-token", request=lambda *a, **kw: {"code": 404}, sleep=lambda _: None)
+    client.enrich(store.new_events([item]))
+    assert "已删除" in item["post_content"]
+    assert store.ingest([item])["new"] == 1
+
+
+def test_failed_context_fetch_does_not_advance_message_baseline(store):
+    store.ingest([])
+    item = event()
+    item["post_content"] = ""
+
+    def request(*args, **kwargs):
+        raise TimeoutError("test timeout")
+
+    client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
+    with pytest.raises(mail.NotificationError):
+        client.enrich(store.new_events([item]))
+    assert store.new_events([item]) == [item]
+    assert not store.db.execute("SELECT 1 FROM outbox").fetchone()
 
 
 @pytest.mark.parametrize("url", ["javascript:alert(1)", "https://test:secret@example.invalid/",
@@ -371,8 +456,12 @@ def test_watch_default_interval_and_backoff():
             if error:
                 raise error
             return []
+        def enrich(self, events):
+            return events
 
     class Store:
+        def new_events(self, events):
+            return []
         def deliver(self, sender):
             return {"sent": 0, "failed": 0, "pending": 0}
         def ingest(self, snapshot, base_url):
