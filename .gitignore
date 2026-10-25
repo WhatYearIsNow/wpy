@@ -30,6 +30,7 @@ dist/
 !.env.example
 deploy/env.board
 deploy/env.update
+deploy/env.notify
 
 # 临时
 *.tmp

@@ -126,12 +126,18 @@ def build_parser():
     up = add_common(sub.add_parser(
         "update", help="补充抓取：只抓上次之后的新帖"))
     up.add_argument("--max-posts", type=int, default=0)
+    from ..notification_cli import add_parser
+    add_parser(sub)
     return p, sub
 
 
 def main(argv=None):
     p, _ = build_parser()
     args = p.parse_args(argv)
+
+    if args.cmd == "notify":
+        from ..notification_cli import main as notify_main
+        return notify_main(args)
 
     # 应用全局速率设置（所有联网命令都受影响）
     qps = getattr(args, "qps", None)

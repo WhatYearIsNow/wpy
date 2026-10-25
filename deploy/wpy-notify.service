@@ -1,0 +1,32 @@
+[Unit]
+Description=WPY personal interaction email notifications
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=1h
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=wpy
+WorkingDirectory=/opt/wpy/wpy-sitewide
+Environment=PYTHONUNBUFFERED=1
+Environment=WPY_DATA_DIR=/var/lib/wpy-notify/runtime/data
+Environment=WPY_BUILD_DIR=/var/lib/wpy-notify/runtime/build
+Environment=WPY_LOG_DIR=/var/lib/wpy-notify/runtime/logs
+Environment=WPY_PAGES_DIR=/var/lib/wpy-notify/runtime/pages
+Environment=WPY_NOTIFY_STATE_DIR=/var/lib/wpy-notify/state
+EnvironmentFile=/opt/wpy/wpy-sitewide/deploy/env.notify
+ExecStart=/usr/bin/python3 -m wpy notify --watch --interval 300
+Restart=on-failure
+RestartPreventExitStatus=2
+RestartSec=5min
+StateDirectory=wpy-notify
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

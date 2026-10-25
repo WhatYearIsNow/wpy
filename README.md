@@ -43,6 +43,7 @@ python -m wpy update --no-confirm     # 抓新帖（需凭据）
 python -m wpy all                     # 全量：列表->正文->评论->导出->看板
 python -m wpy resume                  # 接着上次没抓完的继续
 python -m wpy partial --types 2,3     # 按板块/日期/Mp 号指定范围
+python -m wpy notify --watch          # 本人账号互动邮件，默认每五分钟检查（需单独配置）
 python tools/offline_stage_smoke.py   # 离线阶段测试（不联网）
 python -m pytest tests/               # 单元测试
 python scripts/check_public_source.py # 检查候选发布源码
@@ -57,6 +58,7 @@ python scripts/check_public_source.py # 检查候选发布源码
 - [架构文档](docs/ARCHITECTURE.md) — 系统架构、模块说明、数据模型
 - [开发指南](docs/DEVELOPMENT.md) — 开发流程、编码规范、配置说明
 - [变更日志](CHANGELOG.md) — 所有重要变更记录
+- [个人互动邮件提醒](docs/EMAIL_NOTIFICATIONS.md) — 五分钟检查、去重补发、配置与上游依据
 - [部署说明](deploy/README部署.md) — Caddy + systemd 云部署
 - [开源发布说明](docs/OPEN_SOURCE.md) — 源码快照、历史隔离与发布步骤
 

@@ -10,6 +10,7 @@
 全局限速器单例 LIMITER：所有阶段共享，禁止改回 per-thread sleep。
 """
 import json
+from email.utils import parsedate_to_datetime
 import ssl
 import threading
 import time
@@ -35,6 +36,10 @@ class BadRequest(RuntimeError):
 
 class Throttled(Exception):
     """服务端限流（429 / 返回体提示请求过多）。触发全局降速。"""
+
+    def __init__(self, message, retry_after=0):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class FuseTripped(RuntimeError):
@@ -160,7 +165,7 @@ LIMITER = RateLimiter(TARGET_QPS)
 
 
 def request_json(url, token=None, timeout=TIMEOUT, throttle=True,
-                 method="GET", headers=None, body=None):
+                 method="GET", headers=None, body=None, max_bytes=None):
     """发一个 HTTP 请求并解析 JSON。
 
     throttle=True 时会先向全局限速器申请配额，保证所有线程加起来
@@ -179,12 +184,24 @@ def request_json(url, token=None, timeout=TIMEOUT, throttle=True,
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             metrics.increment("http.requests", 1)
             metrics.increment(f"http.status.{resp.status}", 1)
-            return json.loads(resp.read().decode("utf-8"))
+            raw = resp.read() if max_bytes is None else resp.read(max_bytes + 1)
+            if max_bytes is not None and len(raw) > max_bytes:
+                raise ValueError("JSON response too large")
+            return json.loads(raw.decode("utf-8"))
     except urllib.error.HTTPError as e:
         metrics.increment("http.requests", 1)
         metrics.increment(f"http.status.{e.code}", 1)
         if e.code == 429:
-            raise Throttled("HTTP 429 Too Many Requests")
+            value = e.headers.get("Retry-After", "") if e.headers else ""
+            try:
+                delay = max(0, int(value))
+            except ValueError:
+                try:
+                    delay = max(0, parsedate_to_datetime(value).timestamp() - time.time())
+                except (TypeError, ValueError, OverflowError):
+                    delay = 0
+            e.close()
+            raise Throttled("HTTP 429 Too Many Requests", retry_after=delay) from None
         raise
     except Exception:
         metrics.increment("http.requests", 1)

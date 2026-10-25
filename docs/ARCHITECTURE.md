@@ -91,6 +91,9 @@
 |------|------|
 | `cli.py` | 命令行入口，配置验证 |
 | `lake_actions.py` | 湖底写操作代理（发帖/点赞/评论） |
+| `notifications.py` | 本人消息轮询、持久化去重与待发邮件队列 |
+| `notification_mail.py` | course 兼容 SMTP 配置、邮件渲染及标准库发送 |
+| `notification_cli.py` | 五分钟后台检查、单次合成测试与只补发入口 |
 | `ask.py` | 智能问答（AI API 集成） |
 | `ui_templates/` | 前端 CSS/JS 模板 |
 
