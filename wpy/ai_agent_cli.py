@@ -43,11 +43,12 @@ def main(args):
         rules = DEFAULT_RULES
         if args.rules_file:
             try:
-                rules = Path(args.rules_file).read_text(encoding="utf-8")
+                extra_rules = Path(args.rules_file).read_text(encoding="utf-8")
             except (OSError, UnicodeError):
                 raise AgentError("无法读取 AI 互动目标文件") from None
-            if not rules.strip() or len(rules) > 4000:
+            if not extra_rules.strip() or len(extra_rules) > 4000:
                 raise AgentError("AI 互动目标文件为空或过长")
+            rules = DEFAULT_RULES + "\n维护者私有偏好：" + extra_rules
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous[sig] = signal.signal(sig, lambda *_: stop.set())
         with worker_lock(args.state_dir):

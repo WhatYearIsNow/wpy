@@ -27,6 +27,8 @@ class Remote:
         self.floor_post = 101
         self.calls = []
         self.write_error = False
+        self.post_content = "合成正文"
+        self.floor_content = "合成评论"
 
     def __call__(self, url, **kwargs):
         assert kwargs["token"] == "test_personal_token"
@@ -41,13 +43,13 @@ class Remote:
         if path.endswith("/posts") or path == "posts":
             data = {"list": [{"id": 101, "type": self.board, "title": "合成问题", "content": "合成正文"}]}
         elif path.endswith("/floors") or path == "floors":
-            data = {"list": [{"id": 11, "post_id": 101, "content": "合成评论",
+            data = {"list": [{"id": 11, "post_id": 101, "content": self.floor_content,
                               "sub_floors": [{"id": 12, "post_id": 101, "content": "合成子评论"}]}]}
         elif path.endswith("/floor") or path == "floor":
             data = {"floor": {"id": int(parse_qs(urlsplit(url).query)["floor_id"][0]),
                                "post_id": self.floor_post, "content": "合成评论"}}
         else:
-            data = {"post": {"id": 101, "type": self.board, "title": "合成问题", "content": "合成正文",
+            data = {"post": {"id": 101, "type": self.board, "title": "合成问题", "content": self.post_content,
                               "token": "test_private_token_should_not_leak", "uid": 99}}
         return {"code": 200, "data": data}
 
@@ -285,14 +287,15 @@ def test_model_base_url_validation(monkeypatch, url):
 
 def test_cycle_with_mock_model_sends_one_action_and_filters_forum_secrets(setup):
     executor, remote, _, _ = setup
-    actions = iter([proposal("read_post", post_id=101), proposal("comment_post", post_id=101, content="合成评论")])
+    actions = iter([proposal("read_post", post_id=101), proposal("read_comments", post_id=101, page=1),
+                    proposal("comment_post", post_id=101, content="合成评论")])
     def next_action(messages):
         serialized = json.dumps(messages)
         assert "test_private_token_should_not_leak" not in serialized
         assert "test_personal_token" not in serialized
         return next(actions)
     counts = ai.cycle(SimpleNamespace(next=next_action), executor)
-    assert counts == {"reads": 1, "writes": 1, "previews": 0, "denied": 0}
+    assert counts == {"reads": 2, "writes": 1, "previews": 0, "denied": 0}
     assert len(remote.writes) == 1
 
 
@@ -377,3 +380,72 @@ def test_watch_temporary_errors_backoff_and_restore_signal_handlers(monkeypatch,
     assert stop.waits == [17280]
     assert "模型暂时不可用" in capsys.readouterr().out
     assert all(cli.signal.getsignal(sig) == handler for sig, handler in handlers.items())
+
+
+def test_plain_style_cue_blocks_persona_then_accepts_neutral_rewrite(setup):
+    executor, remote, store, _ = setup
+    remote.post_content = "别演了，正经点，合成日常闲聊。"
+    read(executor)
+    for content in ("本鲸记下了。", "可以捏！", "这条大肥鱼来了"):
+        with pytest.raises(ai.Denied, match="正常助手语气"):
+            executor.run(proposal("comment_post", post_id=101, content=content))
+    assert not remote.writes
+    assert store.db.execute("SELECT count(*) FROM actions").fetchone()[0] == 0
+    executor.run(proposal("comment_post", post_id=101, content="可以听歌或看看书，选自己喜欢的就好。"))
+    assert len(remote.writes) == 1
+
+
+def test_comment_style_preference_survives_restart_without_storing_text(setup, tmp_path):
+    executor, remote, store, _ = setup
+    remote.floor_content = "正经点，test_private_style_comment"
+    read(executor)
+    assert store.plain(101) and not store.plain(102)
+    reopened = ai.Store(tmp_path, "test-personal")
+    try:
+        remote.post_content = "普通合成帖子"
+        other = ai.Executor(executor.forum, reopened, execute=True)
+        read(other)
+        with pytest.raises(ai.Denied, match="正常助手语气"):
+            other.run(proposal("comment_post", post_id=101, content="本鲸回来了。"))
+        assert "test_private_style_comment" not in "\n".join(reopened.db.iterdump())
+    finally:
+        reopened.close()
+
+
+def test_public_display_names_are_available_for_style_and_friend_preferences():
+    post = {"id": 101, "nickname": "合成熟人", "uid": 999, "token": "test_private"}
+    floor = {"id": 11, "post_id": 101, "nickname": "合成评论者", "uid": 888}
+    assert ai.post_view(post)["nickname"] == "合成熟人"
+    assert ai.floor_view(floor)["nickname"] == "合成评论者"
+    assert "uid" not in ai.post_view(post) and "token" not in ai.post_view(post)
+    assert "uid" not in ai.floor_view(floor)
+
+
+def test_comment_and_new_post_require_reading_discussion_context(setup):
+    executor, remote, _, _ = setup
+    executor.run(proposal("read_post", post_id=101))
+    with pytest.raises(ai.Denied, match="先读楼内评论"):
+        executor.run(proposal("comment_post", post_id=101, content="合成评论"))
+    with pytest.raises(ai.Denied, match="近期湖底"):
+        executor.run(proposal("create_post", board=2, title="合成标题", content="合成正文"))
+    assert not remote.writes
+    executor.run(proposal("read_comments", post_id=101, page=1))
+    executor.run(proposal("create_post", board=2, title="合成标题", content="合成正文"))
+    assert len(remote.writes) == 1
+
+
+def test_private_preferences_supplement_persona_instead_of_replacing_it(monkeypatch, tmp_path):
+    monkeypatch.setenv("WPY_AI_KEY", "test_tju_key")
+    monkeypatch.setenv("WPY_AI_ACCOUNT", "test-personal")
+    monkeypatch.setenv("WPY_AI_PASSWORD", "test_personal_password")
+    monkeypatch.setattr(cli.auth, "login", lambda *a: "test_personal_token")
+    rules_file = tmp_path / "rules.txt"
+    rules_file.write_text("私有偏好：可以和合成熟人互动", encoding="utf-8")
+    def run(model, executor, rules):
+        assert rules.startswith(ai.DEFAULT_RULES)
+        assert "合成熟人" in rules
+        return {"writes": 0}
+    monkeypatch.setattr(cli, "cycle", run)
+    args = SimpleNamespace(interval=8640, model_config="", rules_file=str(rules_file), state_dir=tmp_path,
+                           execute=False, watch=False)
+    assert cli.main(args) == 0
