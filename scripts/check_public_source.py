@@ -34,6 +34,9 @@ STUDENT_ID = re.compile(r"\b(?:20|30)\d{8,10}\b")
 
 def example_email(domain: str) -> bool:
     domain = domain.lower()
+    # GitHub 服务身份：平台自动生成的合并提交会用这些地址，不属于个人泄露
+    if domain == "github.com" or domain.endswith(".github.com"):
+        return True
     return (domain in {"example.com", "example.org", "example.net", "localhost"}
             or domain.endswith((".example", ".invalid", ".test", ".localhost", ".local")))
 

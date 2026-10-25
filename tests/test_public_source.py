@@ -68,6 +68,12 @@ def test_reserved_example_addresses_are_allowed():
         assert checker.scan_text("maintainer" + "@" + domain) == []
 
 
+def test_github_service_identities_are_allowed():
+    # GitHub 平台自动生成的合并提交身份，不是个人泄露
+    for email in ("noreply" + "@" + "github.com", "user" + "@" + "users.noreply.github.com"):
+        assert checker.scan_text(email) == []
+
+
 def test_local_pages_are_rejected_without_reading(tmp_path, monkeypatch):
     path = tmp_path / "pages" / "local.json"
     path.parent.mkdir()
