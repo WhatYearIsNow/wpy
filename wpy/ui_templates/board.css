@@ -585,3 +585,46 @@ h3.sec{font-size:13px;color:var(--sub);font-weight:600;margin:18px 0 8px;
 @media(min-width:1600px){
   :root{--shell:1180px}
 }
+
+/* ---- 左侧热榜栏（桌面端 ≥1024px 常驻；手机端不渲染，热榜仍走独立页） ----
+   点条目在右侧打开帖子，左栏不动；正在浏览的帖子在榜内高亮。 */
+.cols{display:block}
+.hotside{display:none}
+@media(min-width:1024px){
+  /* 有热榜栏时把整体壳加宽，让右侧列表保持原有约 760px 的阅读宽度 */
+  body.hoton{--shell:min(94vw,1010px)}
+  body.hoton .cols{display:flex;align-items:flex-start;gap:14px}
+  body.hoton .hotside{
+    display:block;flex:0 0 230px;width:230px;min-width:0;
+    position:sticky;top:calc(var(--headH,120px) + 12px);
+    max-height:calc(100vh - var(--headH,120px) - 24px);overflow-y:auto}
+  /* 帖子弹层只占右侧：左栏保持可见、可点，正在看的帖子在榜里高亮 */
+  body.hoton .modal{left:calc((100% - var(--shell))/2 + 244px)}
+}
+.hotcard{background:var(--card);border-radius:var(--radius);padding:12px 12px 8px}
+.hothead{display:flex;align-items:center;gap:6px;font-weight:700;font-size:14px}
+.hotrefresh{margin-left:auto;border:0;background:transparent;color:var(--sub);
+  cursor:pointer;font-size:15px;line-height:1;padding:3px 7px;border-radius:6px}
+.hotrefresh:hover{background:var(--primary-pale);color:var(--primary)}
+.hottabs{display:flex;gap:4px;margin:8px 0 6px}
+.chipt{border:0;background:transparent;color:var(--sub);font-size:12px;
+  padding:3px 9px;border-radius:999px;cursor:pointer}
+.chipt.on{background:var(--primary-pale);color:var(--primary);font-weight:600}
+.hotlist{list-style:none;margin:0;padding:0}
+.hotitem{display:flex;gap:8px;align-items:flex-start;padding:7px 6px;
+  border-radius:8px;cursor:pointer;transition:background .12s}
+.hotitem:hover,.hotitem.on{background:var(--primary-pale)}
+.hotitem.on .hottitle{color:var(--primary);font-weight:600}
+.hotrank{flex:0 0 18px;height:18px;line-height:18px;text-align:center;margin-top:2px;
+  border-radius:5px;background:var(--line);color:var(--sub);font-size:11px;font-weight:700}
+.hotrank.top{background:#FF7A45;color:#fff}
+.hotmain{flex:1;min-width:0}
+.hottitle{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;font-size:12.5px;line-height:1.45;word-break:break-all}
+.hotmeta{display:block;font-size:11px;color:var(--sub);margin-top:2px}
+.hotnote{font-size:12px;color:var(--sub);padding:8px 6px}
+/* 超宽屏：原壳 1180px；有热榜栏时加宽 244px（栏 230 + 间距 14），
+   保证右侧列表宽度与无热榜栏时一致 */
+@media(min-width:1600px){
+  body.hoton{--shell:1424px}
+}

@@ -22,6 +22,7 @@ from .config import (
     HTML_PATH, IMG_DIR, LAB_PATH, METRICS_JSON_PATH, PIC_API,
 )
 from . import lake_actions
+from . import ranking
 from .board_api import BoardDB
 from .cli import _ensure_utf8_stdio
 from .http import get_bytes
@@ -314,70 +315,23 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/board-ranking":
             rank_qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
             rank_q = {k: (v[0] if v else "") for k, v in rank_qs.items()}
-            board_id = (rank_q.get("board") or "")
-            dim = rank_q.get("dim") or "view"
-            window = rank_q.get("window") or "all"
-            limit = int(rank_q.get("limit") or "50")
-
-            if not board_id or not str(board_id).isdigit():
-                return self._json({"error": "缺少 board 参数"}, 400)
-            board_id = int(board_id)
-            _COL_MAP = {"view": "浏览量", "like": "点赞数", "comment": "评论数", "fav": "收藏数"}
-            _BOARD_MAP = {
-                1: "校务专区", 2: "青年湖底", 3: "学习新知", 4: "交友恋爱",
-                5: "二次元", 6: "摆摊", 8: "数码科技", 13: "美食专区",
-            }
-            if dim not in _COL_MAP:
-                return self._json({"error": "dim 必须是 view/like/comment/fav"}, 400)
-
-            col = _COL_MAP[dim]
-            board_name = _BOARD_MAP.get(board_id, "")
-
-            db = sqlite3.connect(str(DB_PATH))
-            db.row_factory = sqlite3.Row
-            cur = db.cursor()
-
-            if window == "day":
-                where = f"板块ID = {board_id} AND replace(substr(发布时间,1,19),'T',' ') > datetime('now','localtime','-1 day')"
-            elif window == "week":
-                where = f"板块ID = {board_id} AND replace(substr(发布时间,1,19),'T',' ') > datetime('now','localtime','-7 days')"
-            elif window == "month":
-                where = f"板块ID = {board_id} AND replace(substr(发布时间,1,19),'T',' ') > datetime('now','localtime','-30 days')"
-            else:
-                where = f"板块ID = {board_id}"
-
-            rows = cur.execute(
-                f"SELECT id, 标题, 作者, 分管部门, 板块ID, 点赞数, 评论数, 收藏数, 浏览量, 发布时间 "
-                f"FROM posts WHERE {where} ORDER BY {col} DESC LIMIT ?",
-                (limit,)
-            ).fetchall()
-            db.close()
-
-            def fmt_time(s):
-                if not s:
-                    return ""
-                return s[:16].replace("T", " ")
-
-            result = []
-            for r in rows:
-                result.append({
-                    "id": r["id"],
-                    "标题": r["标题"],
-                    "作者": r["作者"],
-                    "分管部门": r["分管部门"],
-                    "板块ID": r["板块ID"],
-                    "点赞数": r["点赞数"] or 0,
-                    "评论数": r["评论数"] or 0,
-                    "收藏数": r["收藏数"] or 0,
-                    "浏览量": r["浏览量"] or 0,
-                    "发布时间": fmt_time(r["发布时间"]),
-                })
-
+            try:
+                board_name, result = ranking.query_ranking(
+                    DB_PATH,
+                    board=rank_q.get("board") or "all",
+                    dim=rank_q.get("dim") or "view",
+                    window=rank_q.get("window") or "all",
+                    limit=rank_q.get("limit") or 50,
+                )
+            except ranking.RankingError as exc:
+                return self._json({"error": str(exc)}, 400)
+            except ValueError:
+                return self._json({"error": "limit 必须是数字"}, 400)
             return self._json({
-                "board": board_id,
+                "board": rank_q.get("board") or "all",
                 "boardName": board_name,
-                "dim": dim,
-                "window": window,
+                "dim": rank_q.get("dim") or "view",
+                "window": rank_q.get("window") or "all",
                 "data": result,
             })
 

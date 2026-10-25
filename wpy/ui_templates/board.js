@@ -1749,6 +1749,7 @@ window.addEventListener('popstate',function(){
 
 function renderTop(){
   var top=NAV[NAV.length-1];
+  setHotOpen(top && top.kind==='post' ? top.id : null);
   if(!top) return;
   if(top.kind==='post') renderPost(top.id);
   var host=$('#sheet');
@@ -1998,6 +1999,87 @@ var _backtop=$('#backtop');
 if(_backtop) window.addEventListener('scroll',function(){
   _backtop.classList.toggle('on', window.scrollY>900);
 },{passive:true});
+/* ---- 左侧热榜栏：桌面端（≥1024px）常驻，窄屏不渲染 ----
+   手机端保持原效果：热榜仍在独立页 /wpy/hot，点击跳帖子。
+   桌面端点条目 → openPost 在右侧打开帖子，左栏不动；
+   当前浏览的帖子在榜内高亮（由 renderTop 统一同步）。 */
+var HOT_MQ=window.matchMedia('(min-width:1024px)');
+var HOT_W='day', HOT_OPEN=null;
+var HOT_DATA=Object.create(null);
+function fmtHotNum(n){
+  n=n||0;
+  if(n>=10000) return (Math.round(n/1000)/10)+'万';
+  return String(n);
+}
+function hotRender(){
+  var host=$('#hotlist'); if(!host) return;
+  var data=HOT_DATA[HOT_W]||[];
+  host.innerHTML=data.map(function(p,i){
+    var n=i+1;
+    return '<li class="hotitem'+(String(p.id)===String(HOT_OPEN)?' on':'')
+      +'" data-id="'+p.id+'">'
+      +'<span class="hotrank'+(n<=3?' top':'')+'">'+n+'</span>'
+      +'<span class="hotmain"><span class="hottitle">'+esc(p["标题"])+'</span>'
+      +'<span class="hotmeta">'+fmtHotNum(p["浏览量"])+'浏览 · '
+      +fmtHotNum(p["点赞数"])+'赞</span></span></li>';
+  }).join('');
+  var note=$('#hotnote');
+  if(note){ note.style.display=data.length?'none':'block'; note.textContent='暂无数据'; }
+}
+function hotLoad(w,force){
+  w=w||HOT_W;
+  if(HOT_DATA[w] && !force){ hotRender(); return }
+  var note=$('#hotnote');
+  if(note){ note.style.display='block'; note.textContent='加载中…'; }
+  api('/api/board-ranking',{board:'all',dim:'view',window:w,limit:20},force)
+    .then(function(d){
+      HOT_DATA[w]=d.data||[];
+      hotRender();
+    })
+    .catch(function(){
+      if(note){ note.style.display='block'; note.textContent='热榜暂时不可用'; }
+    });
+}
+function setHotOpen(id){
+  if(String(HOT_OPEN)===String(id||'')) return;
+  HOT_OPEN=id||null;
+  document.querySelectorAll('.hotitem').forEach(function(li){
+    li.classList.toggle('on', li.getAttribute('data-id')===String(HOT_OPEN));
+  });
+}
+function hotSyncVisible(){
+  var on=HOT_MQ.matches;
+  document.body.classList.toggle('hoton',on);
+  if(on) hotLoad(HOT_W);
+}
+function initHot(){
+  var aside=$('#hotside'); if(!aside) return;
+  // 侧栏吸顶要避开 sticky 的头部；头部高度随内容变，量一次并在窗口变化时重算
+  function hotOffset(){
+    var h=document.querySelector('header');
+    document.documentElement.style.setProperty('--headH',(h?h.offsetHeight:120)+'px');
+  }
+  hotOffset();
+  window.addEventListener('resize',function(){
+    hotOffset();
+  },{passive:true});
+  document.querySelectorAll('.hottabs .chipt').forEach(function(c){
+    c.addEventListener('click',function(){
+      document.querySelectorAll('.hottabs .chipt').forEach(function(x){ x.classList.remove('on') });
+      c.classList.add('on');
+      HOT_W=c.getAttribute('data-w')||'day';
+      hotLoad(HOT_W);
+    });
+  });
+  $('#hotrefresh').addEventListener('click',function(){ hotLoad(HOT_W,true) });
+  $('#hotlist').addEventListener('click',function(e){
+    var li=e.target.closest('.hotitem'); if(!li) return;
+    openPost(parseInt(li.getAttribute('data-id'),10));
+  });
+  hotSyncVisible();
+}
+if(HOT_MQ.addEventListener) HOT_MQ.addEventListener('change',hotSyncVisible);
+
 (function init(){
   applyTabOrder();
   collectNames();
@@ -2008,4 +2090,5 @@ if(_backtop) window.addEventListener('scroll',function(){
   bindMpHover();
   bindFollowHover();
   bindTabFade();
+  initHot();
 })();

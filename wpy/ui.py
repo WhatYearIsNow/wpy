@@ -88,9 +88,28 @@ HTML_SHELL = """<!DOCTYPE html>
   </div>
 </header>
 <div class="wrap">
-  <div id="list"></div>
-  <button class="loadmore" id="more">加载更多</button>
-  <div class="empty" id="empty" style="display:none">没有匹配的帖子</div>
+<div class="cols">
+  <aside class="hotside" id="hotside">
+    <div class="hotcard">
+      <div class="hothead">
+        <span class="hoticon">&#128293;</span><span class="hotttl">热榜</span>
+        <button class="hotrefresh" id="hotrefresh" title="刷新热榜">&#8635;</button>
+      </div>
+      <div class="hottabs">
+        <button class="chipt on" data-w="day">日榜</button>
+        <button class="chipt" data-w="week">周榜</button>
+        <button class="chipt" data-w="all">总榜</button>
+      </div>
+      <ol class="hotlist" id="hotlist"></ol>
+      <div class="hotnote" id="hotnote" style="display:none"></div>
+    </div>
+  </aside>
+  <div class="colmain">
+    <div id="list"></div>
+    <button class="loadmore" id="more">加载更多</button>
+    <div class="empty" id="empty" style="display:none">没有匹配的帖子</div>
+  </div>
+</div>
 </div>
 <button class="backtop" id="backtop" title="回到顶部" aria-label="回到顶部"
   onclick="window.scrollTo({top:0,behavior:'smooth'})">
