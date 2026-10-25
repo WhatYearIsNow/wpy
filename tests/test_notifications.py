@@ -269,7 +269,7 @@ def test_pending_email_can_send_while_forum_is_unavailable(store):
     sent = []
 
     class BrokenClient:
-        def snapshot(self):
+        def snapshot(self, **kwargs):
             raise mail.NotificationError("test forum unavailable")
 
     with pytest.raises(mail.NotificationError):
@@ -481,6 +481,8 @@ def test_watch_default_interval_and_backoff():
             return events
 
     class Store:
+        def scan_options(self):
+            return {}
         def new_events(self, events):
             return []
         def deliver(self, sender):
@@ -496,6 +498,81 @@ def test_watch_default_interval_and_backoff():
 
     cli.watch(Client(), Store(), None, Stop(), report=lambda _: None)
     assert waits == [300, 1800, 300]
+
+
+def test_initial_baseline_uses_latest_floor_page_then_polls_only_new_ids(store):
+    current = [[message(target=i) for i in range(100, 80, -1)]]
+    calls = []
+
+    def request(url, **kwargs):
+        calls.append(url)
+        page = int(parse_qs(urlsplit(url).query)["page"][0])
+        if "/likes?" in url:
+            return {"code": 200, "data": {"list": []}}
+        assert page == 1, "不应扫描旧评论历史"
+        return {"code": 200, "data": {"list": current[0], "total": 20}}
+
+    client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
+    sent = []
+    assert run_cycle(client, store, lambda *args: sent.append(args))["baseline"]
+    assert len(calls) == 2 and not sent
+    assert store.scan_options()["floor_cursor"] == 100
+    current[0] = [message(target=101)] + current[0][:-1]
+    result = run_cycle(client, store, lambda *args: sent.append(args))
+    assert result["new"] == 1 and result["sent"] == 1
+    assert store.scan_options()["floor_cursor"] == 101
+    # 官方客户端读消息后，最新记录消失也不能让游标回退或补发旧消息。
+    current[0] = [message(target=i) for i in range(100, 80, -1)]
+    assert run_cycle(client, store, lambda *args: sent.append(args))["new"] == 0
+    assert store.scan_options()["floor_cursor"] == 101 and len(sent) == 1
+
+
+def test_incremental_floor_scan_loads_multiple_new_pages_then_stops_at_cursor(store):
+    store.ingest([event(target=100)])
+    calls = []
+
+    def request(url, **kwargs):
+        calls.append(url)
+        if "/likes?" in url:
+            return {"code": 200, "data": {"list": []}}
+        page = int(parse_qs(urlsplit(url).query)["page"][0])
+        top = 125 - (page - 1) * 20
+        return {"code": 200, "data": {"list": [message(target=i) for i in range(top, top - 20, -1)]}}
+
+    client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
+    result = run_cycle(client, store, lambda *args: True)
+    assert len(calls) == 3 and result["new"] == 25 and result["sent"] == 1
+    assert store.scan_options()["floor_cursor"] == 125
+
+
+def test_incomplete_incremental_scan_does_not_advance_cursor(store):
+    store.ingest([event(target=100)])
+
+    def request(url, **kwargs):
+        if "/likes?" in url:
+            return {"code": 200, "data": {"list": []}}
+        if parse_qs(urlsplit(url).query)["page"] == ["1"]:
+            return {"code": 200, "data": {"list": [message(target=i) for i in range(130, 110, -1)]}}
+        raise TimeoutError("test timeout")
+
+    client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
+    with pytest.raises(mail.NotificationError):
+        run_cycle(client, store, lambda *args: True)
+    assert store.scan_options()["floor_cursor"] == 100
+    assert not store.db.execute("SELECT 1 FROM outbox").fetchone()
+
+
+def test_changed_floor_sort_order_pauses_instead_of_skipping_records(store):
+    store.ingest([event(target=100)])
+
+    def request(url, **kwargs):
+        rows = [] if "/likes?" in url else [message(target=101), message(target=103)]
+        return {"code": 200, "data": {"list": rows}}
+
+    client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
+    with pytest.raises(mail.NotificationError, match="顺序"):
+        run_cycle(client, store, lambda *args: True)
+    assert store.scan_options()["floor_cursor"] == 100
 
 
 def test_json_response_limit_and_retry_after(monkeypatch):

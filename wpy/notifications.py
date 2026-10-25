@@ -136,12 +136,13 @@ class ForumClient:
                     event["my_comment_likes"] = _number(floor["like_count"])
         return events
 
-    def snapshot(self):
+    def snapshot(self, *, initial=False, floor_cursor=None):
         # 不用未读数作唯一依据；官方客户端读消息后，未读数可能不变而内容已变。
         result = []
         observed = set()
         for kind in ("likes", "floors"):
             previous_pages = set()
+            previous_floor_id = None
             for page in range(1, self.max_pages + 1):
                 if result or page > 1 or kind == "floors":
                     self.sleep(1)
@@ -150,15 +151,29 @@ class ForumClient:
                 if rows and signature in previous_pages:
                     raise NotificationError("论坛重复返回同一消息页，本轮未更新消息基线")
                 previous_pages.add(signature)
-                for row in rows:
-                    event = normalize(kind, row)
+                events = [normalize(kind, row) for row in rows]
+                incremental = kind == "floors" and (initial or floor_cursor is not None)
+                reached_cursor = False
+                if incremental:
+                    ids = [event["target_id"] for event in events]
+                    if (any(a <= b for a, b in zip(ids, ids[1:]))
+                            or (ids and previous_floor_id is not None and ids[0] >= previous_floor_id)):
+                        raise NotificationError("评论消息顺序发生变化，本轮未更新消息基线")
+                    if ids:
+                        previous_floor_id = ids[-1]
+                    if floor_cursor is not None:
+                        reached_cursor = any(value <= floor_cursor for value in ids)
+                        events = [event for event in events if event["target_id"] > floor_cursor]
+                for event in events:
                     key = (event["kind"], event["target_id"])
                     if key in observed:
                         # 页码在抓取途中移动，下一轮重新取，不能提交不完整的基线。
                         raise NotificationError("消息分页在检查期间发生变化，将在下轮重试")
                     observed.add(key)
                     result.append(event)
-                if len(rows) < PAGE_SIZE:
+                # 初次只记住评论列表最新一页；以后取到已见 ID 即停止，不重扫多年历史。
+                # 点赞是聚合计数，旧目标也可能增加，仍需完整读取点赞列表。
+                if len(rows) < PAGE_SIZE or (incremental and (initial or reached_cursor)):
                     break
             else:
                 raise NotificationError("消息分页达到上限，请提高 --max-pages 后重试；基线未更新")
@@ -285,6 +300,12 @@ class NotificationStore:
     def close(self):
         self.db.close()
 
+    def scan_options(self):
+        initialized = bool(self.db.execute("SELECT 1 FROM meta WHERE key='initialized'").fetchone())
+        cursor = self.db.execute("SELECT MAX(target_id) FROM seen "
+                                 "WHERE kind IN ('post_comment','comment_reply')").fetchone()[0]
+        return {"initial": not initialized, "floor_cursor": (cursor or 0) if initialized else None}
+
     def ingest(self, events, base_url=""):
         """去重基线与发件箱在同一个事务中落盘；首次启动仅建立基线。"""
         with self.db:
@@ -358,7 +379,7 @@ class NotificationStore:
 def run_cycle(client, store, sender, base_url=""):
     # 先补发队列；论坛接口不可用时也不能阻塞已持久化的邮件。
     delivery = store.deliver(sender)
-    snapshot = client.snapshot()
+    snapshot = client.snapshot(**store.scan_options())
     client.enrich(store.new_events(snapshot))
     result = store.ingest(snapshot, base_url)
     if not delivery["failed"]:
