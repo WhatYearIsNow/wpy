@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """生成热榜站 hot.html：新帖榜（日/周/月）+ 总榜。默认按浏览量。
 
-环境变量:
-  WPY_HOT_TOKEN  看板访问令牌（用于热榜链接跳转）。
-                 默认不设置；设置的值会公开写入生成的 HTML。
+热榜跳转沿用访客在看板的个人会话，不在 HTML 中嵌入共享登录口令。
 """
 import json
 import os
@@ -13,9 +11,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from wpy.config import DB_PATH, HOT_PATH, HTML_PATH  # noqa: E402
-
-# 无令牌时使用看板现有会话，或由访客在看板自行登录。
-HOT_TOKEN = os.environ.get("WPY_HOT_TOKEN", "")
 
 DB = Path(DB_PATH)
 OUT = Path(HOT_PATH)
@@ -187,7 +182,6 @@ header{background:#fff;position:sticky;top:0;z-index:40;border-bottom:1px solid 
 </div>
 <script>
 const DATA = __DATA__;
-const TOKEN = __HOT_TOKEN__;
 const MAIN = [
   {k:"new_day", label:"日榜"},
   {k:"new_week", label:"周榜"},
@@ -255,7 +249,6 @@ function rowHtml(r, i){
   const rank = i+1;
   const rcls = rank<=3 ? " r"+rank : "";
   const params = new URLSearchParams({postId: r.id});
-  if(TOKEN) params.set("token", TOKEN);
   const href = "/wpy/?" + params.toString();
   return `<a class="card${rcls}" href="${href}">
     <div class="rank"><div class="rank-num">${rank}</div></div>
@@ -345,8 +338,7 @@ render();
 </html>
 """
 
-token_json = json.dumps(HOT_TOKEN, ensure_ascii=False).replace("<", "\\u003c")
-OUT.write_text(HTML.replace("__DATA__", json.dumps(data, ensure_ascii=False)).replace("__HOT_TOKEN__", token_json), encoding="utf-8")
+OUT.write_text(HTML.replace("__DATA__", json.dumps(data, ensure_ascii=False)), encoding="utf-8")
 print(f"生成完成: {OUT} ({OUT.stat().st_size//1024} KB)")
 
 # Patch 主站 HTML：支持 URL ?postId=xxx 自动打开帖子

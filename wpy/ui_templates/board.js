@@ -47,11 +47,16 @@ function api(path, params, noCache){
   var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
   var timer=ctl?setTimeout(function(){ctl.abort()},12000):null;
   return fetch(key, ctl?{signal:ctl.signal}:undefined).then(function(r){
+    if(r.status===401){
+      var badge=$('#rolebadge');
+      if(badge) badge.innerHTML='登录已过期 <a href="login">重新登录</a> · <a href="./">游客浏览</a>';
+      throw new Error('登录已过期，请重新登录或以游客浏览');
+    }
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
   }).then(function(d){
     // 只缓存列表/元数据这类结果；帖子详情可能变（评论在补），不缓存
-    if(!noCache && path!=='api/post'){
+    if(!noCache && path!=='api/post' && !d.personalPending){
       _CACHE[key]=d;
       if(Object.keys(_CACHE).length>200) _CACHE=Object.create(null);  // 简单限容
     }
@@ -124,23 +129,25 @@ function typeColor(t){var m=__COLORS__;return m[t]||'__DEFAULT_COLOR__'}
    延迟显示是为了避免"请求 50ms 就回来"时进度条一闪而过，反而更晃眼。*/
 var _pbarTimer=null;
 /* ---- 角色与动作（服务端代理） ---- */
-var ROLE='guest';
+var ROLE='guest', CSRF='';
 /* 触屏设备没有 hover：关注浮层、用户卡片都要走点击路径 */
 var IS_TOUCH=('ontouchstart' in window)||(navigator.maxTouchPoints||0)>0;
 var BASE_TITLE=document.title;
 function bootRole(){
   return fetch('api/me').then(function(r){ return r.json() }).then(function(d){
-    ROLE=(d && d.role==='admin') ? 'admin' : 'guest';
+    ROLE=(d && d.role==='user') ? 'user' : 'guest';
+    CSRF=(d && d.csrf)||'';
   }).catch(function(){ ROLE='guest'; }).then(function(){
     // 先移除再添加：页面刚加载时 body 带默认 role-guest（见 HTML 模板），
-    // 角色确认前游客不应看到任何管理员入口
-    document.body.classList.remove('role-guest','role-admin');
+    // 角色确认前游客不应看到任何登录用户入口
+    document.body.classList.remove('role-guest','role-user');
     document.body.classList.add('role-'+ROLE);
     var b=$('#rolebadge');
-    if(b) b.innerHTML=((ROLE==='admin')?'管理员':'游客')+
-      ((ROLE==='admin')?' <a href="logout">退出</a>':'');
+    if(b) b.innerHTML=(ROLE==='user')
+      ? '已登录 <button type="button" class="rolelink" onclick="signOut()">退出</button>'
+      : '游客 <a href="login">登录</a>';
     loadLocalFav();
-    loadFollow();   // 角色定了再决定关注列表来源
+    return loadFollow();   // 角色定了再决定关注列表来源
   });
 }
 function postForm(path,data){
@@ -148,8 +155,22 @@ function postForm(path,data){
     return encodeURIComponent(k)+'='+encodeURIComponent(data[k]==null?'':data[k]);
   }).join('&');
   return fetch(path,{method:'POST',
-    headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
-    .then(function(r){ return r.json().catch(function(){ return {} }) });
+    headers:{'Content-Type':'application/x-www-form-urlencoded','X-WPY-CSRF':CSRF},body:body})
+    .then(function(r){
+      return r.json().catch(function(){ return {} }).then(function(d){
+        if(r.status===401){
+          var badge=$('#rolebadge');
+          if(badge) badge.innerHTML='登录已过期 <a href="login">重新登录</a> · <a href="./">游客浏览</a>';
+        }
+        return d;
+      });
+    });
+}
+function signOut(){
+  postForm('logout',{}).then(function(d){
+    if(d && d.ok) location.replace('./');
+    else toast((d && d.error)||'退出失败，请重试');
+  }).catch(function(){ toast('退出失败：服务不可达'); });
 }
 /* 湖底写接口不幂等：重复执行已生效的操作会返回「数据库错误」。
    把这句内部话翻译成访客能懂、也知道下一步做什么的提示。 */
@@ -160,17 +181,19 @@ function friendlyActErr(msg, fallback){
 }
 function actbarHtml(p){
   // 详情页：收藏/点赞按钮直接并入 detail-meta 行（与 分享/图片 同一行）
-  var favOn=(ROLE==='admin') ? !!p.fav : !!LOCALFAV[String(p.id)];
+  var favOn=(ROLE==='user') ? !!p.fav : !!LOCALFAV[String(p.id)];
+  var pending=ROLE==='user' && p.personalPending;
   return '<button class="act'+(favOn?' on':'')+'" id="favbtn-'+p.id+'" '+
+      (pending?'disabled title="个人收藏暂时无法同步，请稍后刷新" ':'')+
       'onclick="toggleFav('+p.id+')">'+(favOn?'★ 已收藏':'☆ 收藏')+'</button>'+
-    '<button class="act admin-only" id="likebtn-'+p.id+'" '+
+    '<button class="act user-only" id="likebtn-'+p.id+'" '+
       'onclick="toggleLike('+p.id+')">&#128077; 点赞'+(p.lk?' '+p.lk:'')+'</button>';
 }
 function toggleFav(id){
   var key=String(id);
   var b0=$('#favbtn-'+id);
   if(b0 && b0.disabled) return;         // 请求在途，防连点重复提交
-  if(ROLE!=='admin'){
+  if(ROLE!=='user'){
     var on=!!LOCALFAV[key];
     if(on){ delete LOCALFAV[key]; toast('已取消收藏（仅本机）') }
     else{ LOCALFAV[key]=1; toast('已收藏（仅保存在本机）') }
@@ -184,6 +207,7 @@ function toggleFav(id){
   if(b0) b0.disabled=true;
   postForm('api/wpy/fav',{post_id:id,op:op}).then(function(d){
     if(d && d.ok){
+      _CACHE=Object.create(null);
       p.fav=op?1:0;   // op=1 表示刚执行了收藏（与 toggleLike 同一套语义）
       var b=$('#favbtn-'+id);
       if(b){ b.classList.toggle('on',!!p.fav);
@@ -202,8 +226,8 @@ function toggleLike(id){
   if(btn) btn.disabled=true;
   postForm('api/wpy/like',{post_id:id,op:op}).then(function(d){
     if(d && d.ok){
-      p.lk=Math.max(0,(p.lk||0)+(op?-1:1));
-      if(btn){ btn.classList.toggle('on',!op);
+      p.lk=Math.max(0,(p.lk||0)+(op?1:-1));
+      if(btn){ btn.classList.toggle('on',!!op);
                btn.textContent='\uD83D\uDC4D 点赞'+(p.lk?' '+p.lk:''); }
       toast(op?'已点赞':'已取消点赞');
     } else toast(friendlyActErr(d && d.error, '点赞失败'));
@@ -220,7 +244,7 @@ function toggleFloorLike(fid,btn){
   }).catch(function(){ toast('操作失败：服务不可达') })
     .then(function(){ btn.disabled=false; });
 }
-/* ---- 评论（管理员）：顶层评论 POST floor；楼中楼 POST floor/reply ----
+/* ---- 评论（登录用户）：顶层评论 POST floor；楼中楼 POST floor/reply ----
    数据同步有延迟（评论由定时抓取入库），发出后先本地清空并提示。 */
 var REPLY_TO=null;        // {fid, name} 楼中楼回复目标；null=发顶层评论
 function replyToFloor(fid,name){
@@ -263,7 +287,7 @@ function sendReply(id){
     } else toast(friendlyActErr(d && d.error, '评论失败'));
   }).catch(function(){ toast('评论失败：服务不可达') }).then(function(){ busyOff() });
 }
-/* ---- 发帖（管理员） ---- */
+/* ---- 发帖（登录用户） ---- */
 var PTYPES=null;
 function openComposer(){
   if(PTYPES){ renderComposer(PTYPES); return; }
@@ -312,7 +336,7 @@ function submitPost(){
   busyOn();
   postForm('api/wpy/post',{type:type,title:title,content:content,campus:campus})
     .then(function(d){
-      if(d && d.ok){ toast('发布成功'); closePost(); applyFilter(); }
+      if(d && d.ok){ _CACHE=Object.create(null); toast('发布成功'); closePost(); applyFilter(); }
       else toast((d && d.error) || '发布失败');
     }).catch(function(){ toast('发布失败：服务不可达') }).then(function(){ busyOff() });
 }
@@ -400,8 +424,8 @@ function cardHtml(p){
       (p.tn?'<span class="tag board" style="background:'+typeColor(p.ty)+'">'+
         esc(p.tn)+'</span>':'')+
       (p.ess?'<span class="tag essence">精华</span>':'')+
-      ((ROLE==='admin'&&p.mine)?'<span class="tag mine">我发的</span>':'')+
-      ((ROLE==='admin'&&p.fav)?'<span class="tag fav">我收藏</span>':'')+
+      ((ROLE==='user'&&p.mine)?'<span class="tag mine">我发的</span>':'')+
+      ((ROLE==='user'&&p.fav)?'<span class="tag fav">我收藏</span>':'')+
       (p.gone?'<span class="tag gone" title="详情接口取不到正文，帖子可能已被删除或隐藏">正文未取到</span>':'')+
       (p.tag?'<span class="tag label">'+esc(p.tag)+'</span>':'')+
       (p.etag==='top'?'<span class="tag top">置顶</span>':'')+
@@ -425,8 +449,8 @@ function floorHtml(f){
       ' onload="this.setAttribute(\'data-loaded\',\'1\')"'+
       ' onerror="this.setAttribute(\'data-loaded\',\'1\');this.style.visibility=\'hidden\'">':'')+
     '<div class="ins"><span>赞 '+f.lk+'</span>'+(f.d?'<span>踩 '+f.d+'</span>':'')+
-      '<button class="act admin-only flbtn" onclick="toggleFloorLike('+f.id+',this)">赞</button>'+
-      '<button class="act admin-only flbtn" data-nm="'+escAttr(f.n||'')+'" '+
+      '<button class="act user-only flbtn" onclick="toggleFloorLike('+f.id+',this)">赞</button>'+
+      '<button class="act user-only flbtn" data-nm="'+escAttr(f.n||'')+'" '+
         'onclick="replyToFloor('+f.id+',this.getAttribute(\'data-nm\'))">回复</button></div>'+
   '</div></div>';
 }
@@ -538,10 +562,10 @@ function drawPost(p){
   if(p.offs&&p.offs.length){
     h+='<h3 class="sec">官方回复（'+p.offs.length+'）</h3>'+p.offs.map(officialHtml).join('');
   }
-  // 评论框（仅管理员）：顶层评论走 floor，楼中楼走 floor/reply。
+  // 评论框（仅登录用户）：顶层评论走 floor，楼中楼走 floor/reply。
   // 评论由定时抓取入库，发出后不会立刻出现在本地列表里。
   clearReplyTo();
-    h+='<div class="replybox admin-only" id="replybox-'+p.id+'">'+
+    h+='<div class="replybox user-only" id="replybox-'+p.id+'">'+
       '<div class="reply-target" id="reply-target">'+
         '<span id="reply-target-name"></span>'+
         '<button class="act" onclick="clearReplyTo()">取消</button></div>'+
@@ -562,9 +586,7 @@ function drawPost(p){
     (p.nc? '' :
       '<div class="empty" style="padding:20px 0">'+
       (p.cm>0
-        ? (ROLE==='admin'
-            ? '这一帖的评论还没抓取（原帖有 '+p.cm+' 条）。<br>运行抓取工具时选「继续爬取」即可补上。'
-            : '原帖有 '+p.cm+' 条评论，还没同步到看板。')
+        ? ('原帖有 '+p.cm+' 条评论，还没同步到看板。')
         : '这个帖子没有评论。')+'</div>')+'</div>';
   if(p.floorsTotal && p.floorsLoaded < p.floorsTotal){
     h+='<button class="loadmore floors-more" id="morefloors" '+
@@ -742,12 +764,11 @@ var USER_NAMES={};        // uid -> 昵称，用于关注栏显示
 var FOLLOW={};            // uid -> 昵称
 
 function loadFollow(){
-  // 管理员：服务端持久化（跨设备）；游客：只存本机浏览器
-  if(ROLE==='admin'){
-    fetch('api/follow').then(function(r){ return r.json() }).then(function(d){
+  // 登录用户：服务端持久化（跨设备）；游客：只存本机浏览器
+  if(ROLE==='user'){
+    return fetch('api/follow').then(function(r){ return r.json() }).then(function(d){
       if(d && d.follows){
         FOLLOW=d.follows;
-        try{ localStorage.setItem(FOLLOW_KEY, JSON.stringify(FOLLOW)) }catch(e){}
       }
       renderFollowBar();
     }).catch(function(){ renderFollowBar(); });
@@ -765,7 +786,7 @@ function isFollowed(uid){ return !!FOLLOW[String(uid)] }
 function followCount(){ return Object.keys(FOLLOW).length }
 function toggleFollow(uid,name){
   uid=String(uid);
-  if(ROLE!=='admin'){
+  if(ROLE!=='user'){
     if(FOLLOW[uid]){ delete FOLLOW[uid]; toast('已取消关注（仅本机） '+(name||'')) }
     else{ FOLLOW[uid]=name||('用户 '+uid); toast('已关注（仅保存在本机） '+(FOLLOW[uid])) }
     saveFollow();
@@ -775,7 +796,6 @@ function toggleFollow(uid,name){
   postForm('api/follow',{uid:uid,name:name||''}).then(function(d){
     if(d && d.ok){
       FOLLOW=d.follows||{};
-      try{ localStorage.setItem(FOLLOW_KEY, JSON.stringify(FOLLOW)) }catch(e){}
       toast(FOLLOW[uid]!==undefined ? ('已关注 '+(FOLLOW[uid]||''))
                                     : ('已取消关注 '+(name||'')));
       renderFollowBar();
@@ -1498,9 +1518,9 @@ function prefetchNextPage(curQ){
 function buildQuery(){
   var p={page:PAGE+1, size:SZ, tab:CUR_TAB, so:$('#so').value,
          q:($('#q').value||'').trim()};
-  if(swOn('mine')) p.mine=1;
+  if(ROLE==='user' && swOn('mine')) p.mine=1;
   if(swOn('fav')){
-    if(ROLE==='admin') p.fav=1;
+    if(ROLE==='user') p.fav=1;
     else p.favIds=Object.keys(LOCALFAV).join(',')||'0';
   }
   if(swOn('unc')) p.unc=1;
@@ -2083,12 +2103,12 @@ if(HOT_MQ.addEventListener) HOT_MQ.addEventListener('change',hotSyncVisible);
 (function init(){
   applyTabOrder();
   collectNames();
-  loadFollow();
-  initYears();
-  bootRole();
-  applyFilter();
+  bootRole().then(function(){
+    initYears();
+    applyFilter();
+    initHot();
+  });
   bindMpHover();
   bindFollowHover();
   bindTabFade();
-  initHot();
 })();

@@ -72,8 +72,8 @@ header{background:#fff;position:sticky;top:0;z-index:40;
 /* 关注栏：只在有关注时出现，头像横向排列 */
 /* 关注：与「我的/收藏」并列的开关；悬停展开已关注列表 */
 .followwrap{position:relative;display:inline-flex;flex:none}
-/* 角色（游客/管理员）与动作按钮：游客隐藏 admin-only 元素 */
-.role-guest .admin-only{display:none!important}
+/* 角色（游客/登录用户）与动作按钮：游客隐藏 user-only 元素 */
+.role-guest .user-only{display:none!important}
 .act{border:1px solid #dfe5ee;background:#fff;border-radius:8px;
 padding:6px 12px;font-size:13px;cursor:pointer;color:#33415c}
 .act:hover{background:#f3f6fa}
@@ -628,3 +628,5 @@ h3.sec{font-size:13px;color:var(--sub);font-weight:600;margin:18px 0 8px;
 @media(min-width:1600px){
   body.hoton{--shell:1424px}
 }
+
+.rolelink{border:0;background:none;color:var(--primary);padding:0;font:inherit;cursor:pointer}

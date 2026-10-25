@@ -175,7 +175,7 @@ class BoardDB:
         return d
 
     # ---------- 通用筛选构造 ----------
-    def _where(self, q):
+    def _where(self, q, personal=None):
         """把查询参数转成 WHERE 子句与参数列表。"""
         cond, args = [], []
 
@@ -189,10 +189,18 @@ class BoardDB:
                 cond.append('"板块ID"=?')
                 args.append(int(tab))
 
-        if q.get("mine") == "1":
-            cond.append('"是我的帖子"=1')
-        if q.get("fav") == "1":
-            cond.append('"是我的收藏"=1')
+        for kind, column in (("mine", "是我的帖子"), ("fav", "是我的收藏")):
+            if q.get(kind) != "1":
+                continue
+            if personal is None:
+                cond.append('"%s"=1' % column)
+            else:
+                ids = sorted(personal[kind])
+                if ids:
+                    cond.append('"id" IN (%s)' % ",".join("?" for _ in ids))
+                    args.extend(ids)
+                else:
+                    cond.append("0")
         if q.get("unc") == "1":
             # 评论数为 0 的帖子抓取阶段本就不处理（没评论可抓），不算「未抓」
             cond.append('"评论已抓"<>1 AND "评论数">0')
@@ -239,8 +247,8 @@ class BoardDB:
         return (" AND ".join(cond) if cond else "1"), args
 
     # ---------- 帖子查询 ----------
-    def posts(self, q):
-        where, args = self._where(q)
+    def posts(self, q, personal=None):
+        where, args = self._where(q, personal=personal)
         keyword = (q.get("q") or "").strip()
         order = SORT_MAP.get(q.get("so", "new"), '"id" DESC')
         page = max(1, int(q.get("page", 1) or 1))

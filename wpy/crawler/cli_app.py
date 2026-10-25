@@ -91,7 +91,7 @@ def build_parser():
                     help="监听地址。公网部署用 0.0.0.0（建议前面加反代）")
     sv.add_argument("--port", type=int, default=8765)
     sv.add_argument("--token", type=str, default=None,
-                    help="访问口令；默认读环境变量 WPY_BOARD_TOKEN")
+                    help="已停用的旧访问口令参数；不再提供登录或写权限")
     sv.add_argument("--no-open", action="store_true",
                     help="不自动打开浏览器")
     hv = sub.add_parser("hot", help="启动热榜独立服务")
@@ -100,7 +100,7 @@ def build_parser():
     hv.add_argument("--port", type=int, default=8766,
                     help="监听端口，默认 8766")
     hv.add_argument("--token", type=str, default=None,
-                    help="访问口令；默认读环境变量 WPY_BOARD_TOKEN")
+                    help="已停用的旧访问口令参数；不再提供登录或写权限")
     sub.add_parser("whoami", help="查看当前用的是哪个账号（密码不显示）")
     a = sub.add_parser("ask", help="学习板块智能问答（需 .tju_key）")
     a.add_argument("question", nargs="+", help="要问的问题")

@@ -35,14 +35,6 @@ class ServerConfig:
                 errors.append(f"端口 {port} 超出范围 (1-65535)")
         except ValueError:
             errors.append(f"端口 '{self.port}' 不是有效数字")
-        if self.host not in ("0.0.0.0", "::"):
-            # 非公网绑定：不需要 token
-            pass
-        else:
-            if not self.token:
-                errors.append(
-                    "公网绑定 (0.0.0.0/::) 时必须设置 WPY_BOARD_TOKEN 环境变量"
-                )
         return errors
 
 

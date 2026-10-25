@@ -9,16 +9,15 @@ API 请求（/api/*）反代到看板服务（8765），
 import os
 import socketserver
 import urllib.parse
-import hashlib
-import hmac
 import json
 import time
 import threading
 import http.server
 import urllib.request
+import urllib.error
 
 from .config import (
-    ASSET_DIR, BOARD_TOKEN, DEFAULT_HOST, HOT_PATH,
+    ASSET_DIR, DEFAULT_HOST, HOT_PATH,
     IMG_DIR, PIC_API, DB_PATH,
 )
 from .content_type import guess_type
@@ -53,7 +52,6 @@ def _img_lock(name):
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
-    token = ""
     hot_path = HOT_PATH
 
     def log_message(self, *a):
@@ -120,34 +118,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             "data": result,
         })
 
-    def _query_token(self):
-        parsed = urllib.parse.urlparse(self.path)
-        qs = urllib.parse.parse_qs(parsed.query)
-        return (qs.get("token") or [""])[0]
-
-    def _session_sig(self, role):
-        return hmac.new(self.token.encode("utf-8"), role.encode("utf-8"),
-                        hashlib.sha256).hexdigest()[:32]
-
-    def _role(self):
-        if not self.token:
-            return "admin"
-        # 检查 URL token
-        if self._query_token() == self.token:
-            return "admin"
-        # 检查 cookie 会话
-        raw = self.headers.get("Cookie") or ""
-        for part in raw.split(";"):
-            part = part.strip()
-            if part.startswith("wpy_session="):
-                val = part.split("=", 1)[1]
-                if "." in val:
-                    role, sig = val.split(".", 1)
-                    if role in ("admin", "guest") and hmac.compare_digest(
-                            sig, self._session_sig(role)):
-                        return role
-        return ""
-
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
@@ -167,11 +137,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         # API 请求：反代到看板服务（8765），跳过本地鉴权
         if path.startswith("/api/"):
             return self._proxy_api(path, parsed.query)
-
-        # 鉴权（仅对非 API 的非页面请求）
-        role = self._role()
-        if self.token and not role:
-            return self._json({"error": "unauthorized"}, 401)
 
         # 图标
         if path in ("/apple-touch-icon.png", "/icon-192.png", "/icon-512.png"):
@@ -205,14 +170,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 "User-Agent": "wpy-hot-proxy/1.0",
                 "Cookie": self.headers.get("Cookie", ""),
             }
-            # 如果请求没有带 token 参数，用 token cookie 代替
-            if not query_string or "token=" not in query_string:
-                if self.token:
-                    cookie_val = headers.get("Cookie", "")
-                    if cookie_val:
-                        cookie_val += "; "
-                    cookie_val += "wpy_token=" + self.token
-                    headers["Cookie"] = cookie_val
             req = urllib.request.Request(board_url, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 body = resp.read()
@@ -225,8 +182,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 if set_cookie:
                     resp_headers["Set-Cookie"] = set_cookie
                 return self._send(body, ctype, resp.status, resp_headers)
-        except Exception as e:
-            return self._json({"error": str(e)[:200]}, 502)
+        except urllib.error.HTTPError as exc:
+            return self._send(exc.read(), exc.headers.get("Content-Type", "application/json"), exc.code)
+        except Exception:
+            return self._json({"error": "看板暂时不可用"}, 502)
 
     def _serve_img(self, path):
         rest = path[5:]
@@ -293,14 +252,13 @@ class Server(socketserver.ThreadingTCPServer):
 def serve(host=None, port=None, token=None):
     host = host or DEFAULT_HOST
     port = port or int(os.environ.get("WPY_HOT_PORT", "8766"))
-    token = token or BOARD_TOKEN
 
     if not os.path.exists(HOT_PATH):
         print("热榜文件不存在: %s" % HOT_PATH)
         print("请先运行: python -m wpy build")
         return
 
-    handler = type("HotHandler", (_Handler,), {"token": token or "", "hot_path": HOT_PATH})
+    handler = type("HotHandler", (_Handler,), {"hot_path": HOT_PATH})
 
     print()
     print("=" * 60)
@@ -308,8 +266,6 @@ def serve(host=None, port=None, token=None):
     print("=" * 60)
     print("  监听: %s:%d" % (host, port))
     url = "http://%s:%d/" % (host, port)
-    if token:
-        url += "?token=" + token
     print("  本机打开: %s" % url)
     print("  健康检查: /healthz")
     print("  按 Ctrl+C 停止。")

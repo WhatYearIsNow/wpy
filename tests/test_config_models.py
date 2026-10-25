@@ -27,15 +27,11 @@ class TestServerConfig:
 
     def test_public_host_no_token(self):
         cfg = self._make(host="0.0.0.0", port=8765, token="")
-        errors = cfg.validate()
-        assert len(errors) == 1
-        assert "WPY_BOARD_TOKEN" in errors[0]
+        assert cfg.validate() == []
 
     def test_public_host_ipv6_no_token(self):
         cfg = self._make(host="::", port=8765, token="")
-        errors = cfg.validate()
-        assert len(errors) == 1
-        assert "WPY_BOARD_TOKEN" in errors[0]
+        assert cfg.validate() == []
 
     def test_port_zero(self):
         cfg = self._make(port=0)
@@ -226,5 +222,4 @@ class TestValidateAll:
 
     def test_public_host_no_token_in_all(self, monkeypatch):
         monkeypatch.setenv("WPY_HOST", "0.0.0.0")
-        errors = validate_all()
-        assert any("WPY_BOARD_TOKEN" in e for e in errors)
+        assert validate_all() == []
