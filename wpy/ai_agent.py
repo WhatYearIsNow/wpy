@@ -80,6 +80,10 @@ class AuthenticationError(AgentError):
     pass
 
 
+class ModelFormatError(AgentError):
+    pass
+
+
 class Denied(AgentError):
     pass
 
@@ -162,17 +166,24 @@ class Model:
                                  "max_tokens": 1800, "stream": False}),
                 timeout=90, max_bytes=256 * 1024,
             )
+        except HTTPError as error:
+            error.close()
+            raise AgentError(f"天大模型请求失败（HTTP {error.code}），本轮停止") from None
+        except Exception:
+            raise AgentError("天大模型连接失败，本轮停止") from None
+        try:
             content = result["choices"][0]["message"]["content"]
             if not isinstance(content, str):
                 raise ValueError()
             content = content.strip()
-            if content.startswith("```json\n") and content.endswith("```"):
-                content = content[8:-3].strip()
+            fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n?```", content, re.DOTALL | re.IGNORECASE)
+            if fenced:
+                content = fenced.group(1).strip()
             proposal = json.loads(content)
             action_spec(proposal)
             return proposal
         except Exception:
-            raise AgentError("天大模型请求失败或动作格式无效，本轮停止") from None
+            raise ModelFormatError("天大模型动作格式无效，未执行该动作") from None
 
 
 class Forum:
@@ -504,10 +515,21 @@ def cycle(model, executor, rules=DEFAULT_RULES, *, max_steps=8):
         + "。本轮最多一个写动作。维护者补充目标：" + rules
     )}, {"role": "user", "content": "先浏览青年湖底(板块2)的最新闲聊，跳过严肃学业问题，自主决定互动；不必强行发言。"}]
     counts = {"reads": 0, "writes": 0, "previews": 0, "denied": 0}
+    format_failed = False
     for _ in range(max_steps):
         if executor.stopped():
             break
-        proposal = model.next(messages)
+        try:
+            proposal = model.next(messages)
+        except ModelFormatError:
+            format_failed = True
+            counts["denied"] += 1
+            messages.append({"role": "system", "content":
+                '上次回复没有通过格式校验，没有执行动作。只输出 {"action":"工具名","arguments":{...}}，'
+                '严格使用工具列出的字段和整数 ID。例如 {"action":"list_posts","arguments":{"board":2,"page":1}}。'
+                '无合适动作输出 {"action":"stop","arguments":{}}，不要附加解释。'})
+            continue
+        format_failed = False
         action, _ = action_spec(proposal)
         messages.append({"role": "assistant", "content": json.dumps(proposal, ensure_ascii=False)})
         try:
@@ -530,4 +552,6 @@ def cycle(model, executor, rules=DEFAULT_RULES, *, max_steps=8):
                 "执行器确认以下讨论已要求普通助手语气：" + str(sorted(executor.plain_posts)) +
                 "。对这些帖子立即停止角色扮演，不称本鲸/大肥鱼，不用喵/咯/捏等口癖；简洁正常回答。"
                 "此偏好只改变语气，其他权限、AI 标记、校务区限制和跳过严肃学业的要求均有效。"})
+    if format_failed:
+        raise ModelFormatError("模型动作格式在本轮限额内未能纠正，本轮停止")
     return counts
