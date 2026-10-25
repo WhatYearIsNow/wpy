@@ -103,6 +103,19 @@ def test_first_observation_of_like_target_does_not_claim_cumulative_count_is_new
     assert "增加 17" not in sent[0][1]
 
 
+def test_more_than_one_hundred_notifications_in_one_window_are_one_email(store):
+    store.ingest([])
+    events = [event(target=i) for i in range(1, 104)]
+    events += [event("likes", 1, target=200, likes=3), event(kind_type=1, target=201)]
+    assert store.ingest(events)["new"] == 105
+    captured = []
+    assert store.deliver(lambda *args: captured.append(args))["sent"] == 1
+    assert len(captured) == 1
+    assert captured[0][0] == "有人点赞了你的评论；有人回复了你的帖子、评论"
+    assert captured[0][1].count("通知类型：") == 105
+    assert store.ingest(events)["new"] == 0
+
+
 def test_state_persists_and_cannot_be_reused_for_another_identity(tmp_path):
     directory = tmp_path / "state"
     with worker_lock(directory):
@@ -282,7 +295,7 @@ def test_standard_template_contains_post_context_and_specific_interaction(index)
     subject, text, body = mail.render_digest([item])
     for label in ("帖子编号", "帖子标题", "帖子正文", "帖子点赞"):
         assert label in text and label in body
-    assert f"#MP{item['post_id']}" in subject
+    assert subject == mail.LABELS[item["kind"]]
     assert item["title"] in text and item["post_content"] in text
     if item["kind"] in ("floor_like", "comment_reply"):
         assert "我的评论" in text and item["my_comment"] in text
@@ -299,6 +312,13 @@ def test_long_context_is_explicitly_marked_as_excerpt():
     item = normalize("floors", row)
     assert "已节选" in item["post_content"]
     assert len(item["post_content"]) < 8100
+
+
+def test_mixed_subject_lists_notification_types_without_project_prefix():
+    subject = mail.notification_subject(mail.test_events())
+    assert subject == "有人点赞了你的帖子、评论；有人回复了你的帖子、评论"
+    assert "WPY" not in subject and "#MP" not in subject
+    assert mail.notification_subject(mail.test_events(), test=True) == subject + "（测试）"
 
 
 def test_enrichment_only_reads_new_context_once_per_post_and_floor(store):
@@ -409,6 +429,7 @@ def test_real_send_constructs_multipart_and_treats_quit_failure_as_accepted(tmp_
     config = mail.MailConfig.load(config_file(tmp_path))
     mail.send_mail(config, *mail.render_digest(mail.test_events(), test=True), "<test-id@wpy.local>")
     assert captured[0]["Message-ID"] == "<test-id@wpy.local>"
+    assert captured[0]["From"].addresses[0].display_name == "微北洋"
     assert captured[0].get_body(preferencelist=("html",)) is not None
     assert captured[0].get_body(preferencelist=("plain",)) is not None
 

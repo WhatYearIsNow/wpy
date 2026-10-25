@@ -22,7 +22,6 @@ from .notification_mail import NotificationError, render_digest
 INTERVAL = 300
 PAGE_SIZE = 20
 MAX_PAGES = 50
-MAX_EVENTS_PER_MAIL = 100
 
 
 class AuthenticationError(NotificationError):
@@ -304,10 +303,10 @@ class NotificationStore:
                                 "DO UPDATE SET likes=excluded.likes",
                                 (event["kind"], event["target_id"], event["likes"]))
             pending = self.db.execute("SELECT count(*) FROM outbox WHERE sent IS NULL").fetchone()[0]
-            if pending + (len(changes) + MAX_EVENTS_PER_MAIL - 1) // MAX_EVENTS_PER_MAIL > 1000:
+            if pending + bool(changes) > 1000:
                 raise NotificationError("待发邮件积压过多，暂停更新消息基线")
-            for start in range(0, len(changes), MAX_EVENTS_PER_MAIL):
-                subject, text, body = render_digest(changes[start:start + MAX_EVENTS_PER_MAIL], base_url)
+            if changes:
+                subject, text, body = render_digest(changes, base_url)
                 key = uuid.uuid4().hex
                 self.db.execute("INSERT INTO outbox (id,subject,text,html,message_id,due) VALUES (?,?,?,?,?,?)",
                                 (key, subject, text, body, f"<{key}@wpy.local>", self.now()))

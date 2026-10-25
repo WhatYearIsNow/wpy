@@ -58,21 +58,29 @@ def validate_base_url(value):
 
 
 LABELS = {
-    "post_like": "你的帖子收到点赞",
-    "floor_like": "你的评论收到点赞",
-    "post_comment": "有人评论了你的帖子",
+    "post_like": "有人点赞了你的帖子",
+    "floor_like": "有人点赞了你的评论",
+    "post_comment": "有人回复了你的帖子",
     "comment_reply": "有人回复了你的评论",
 }
+
+
+def notification_subject(events, *, test=False):
+    kinds = {event["kind"] for event in events}
+    parts = []
+    for action, post_kind, comment_kind in (("点赞", "post_like", "floor_like"),
+                                           ("回复", "post_comment", "comment_reply")):
+        targets = [target for kind, target in ((post_kind, "帖子"), (comment_kind, "评论")) if kind in kinds]
+        if targets:
+            parts.append(f"有人{action}了你的" + "、".join(targets))
+    return "；".join(parts) + ("（测试）" if test else "")
 
 
 def render_digest(events, base_url="", *, test=False):
     """course 风格的标题、键值表、备注；所有论坛文本必须转义。"""
     base_url = validate_base_url(base_url)
     title = "微北洋邮件提醒测试" if test else "微北洋互动提醒"
-    subject = "微北洋邮件提醒测试（完整格式）" if test else f"你有 {len(events)} 条新的互动提醒"
-    if not test and len(events) == 1:
-        event = events[0]
-        subject = f"{LABELS[event['kind']]}｜#MP{event['post_id']} {event.get('title', '')[:100]}"
+    subject = notification_subject(events, test=test)
     intro = ("这是一封使用合成内容的测试邮件，没有发生下面展示的真实互动。" if test
              else "以下是本轮检查发现的新互动，未更改微北洋中的已读状态。")
     text = [title, intro]
@@ -130,7 +138,7 @@ def render_digest(events, base_url="", *, test=False):
 
 def send_mail(config, subject, text, body, message_id):
     message = EmailMessage()
-    message["From"] = f"WPY <{config.user}>"
+    message["From"] = f"微北洋 <{config.user}>"
     message["To"] = config.recipient
     message["Subject"] = subject.replace("\r", " ").replace("\n", " ")
     message["Date"] = formatdate(localtime=False)
