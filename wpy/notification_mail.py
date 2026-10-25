@@ -136,9 +136,9 @@ def render_digest(events, base_url="", *, test=False):
     return subject, "\n".join(text), body
 
 
-def send_mail(config, subject, text, body, message_id):
+def send_mail(config, subject, text, body, message_id, *, sender_name="微北洋"):
     message = EmailMessage()
-    message["From"] = f"微北洋 <{config.user}>"
+    message["From"] = f"{sender_name} <{config.user}>"
     message["To"] = config.recipient
     message["Subject"] = subject.replace("\r", " ").replace("\n", " ")
     message["Date"] = formatdate(localtime=False)

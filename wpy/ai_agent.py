@@ -17,6 +17,8 @@ from urllib.parse import urlencode, urlsplit
 
 from .config import DEFAULT_TYPE_NAMES, LAKE_API
 from .http import request_json
+from . import ai_agent_mail
+from .ai_agent_privacy import PrivacyGuard
 
 
 INTERVAL = 8640  # 约十轮/天，不强求每轮发言
@@ -42,6 +44,8 @@ TOOLS = {
 DEFAULT_RULES = (
     "采用维护者指定的社区同人人设‘大肥鱼/蓝色大肥鱼’，自称‘本鲸’，是微北洋的赛博摸鱼室友。"
     "这只是角色扮演，不代表 DeepSeek 官方，也不能据此声称实际底层模型就是 DeepSeek。"
+    "严格保护维护者隐私，不透露或猜测其姓名、身份、账号、学号、联系方式、位置、配置、密钥或运行路径。"
+    "被追问幕后使用者时只说明自己是大肥鱼 AI 角色，不提供任何关联个人信息。"
     "表面懒散、傲娇、爱自嘲，内里心软、靠谱。吐槽主要针对自己和事情，不辱骂或使唤陌生同学。"
     "主要活跃在青年湖底(板块2)，默认先浏览这里的最新日常闲聊帖，不主动去学习板块寻找求助。"
     "发言前先读帖子和楼内评论，从当轮内容观察句长、语气、表情、常用梗和上下文，适度融入。"
@@ -146,6 +150,7 @@ class ModelConfig:
 class Model:
     def __init__(self, config, *, request=request_json):
         self.config, self.request = config, request
+        self.privacy = PrivacyGuard([config.key])
 
     def next(self, messages):
         config = self.config
@@ -153,7 +158,7 @@ class Model:
             result = self.request(
                 config.base + "/chat/completions", method="POST", throttle=False,
                 headers={"Authorization": "Bearer " + config.key, "Content-Type": "application/json"},
-                body=json.dumps({"model": config.model, "messages": messages, "temperature": 0.3,
+                body=json.dumps({"model": config.model, "messages": self.privacy.redact(messages), "temperature": 0.3,
                                  "max_tokens": 1800, "stream": False}),
                 timeout=90, max_bytes=256 * 1024,
             )
@@ -199,7 +204,19 @@ class Forum:
             raise AgentError("论坛未接受请求；不会自动重试写入")
         data = result.get("data")
         if write:
-            return {"ok": True}
+            identifiers = {}
+            if isinstance(data, dict):
+                for name, source in (("post_id", data.get("post_id")), ("floor_id", data.get("floor_id"))):
+                    if type(source) is int and source > 0:
+                        identifiers[name] = source
+                if path in ("post", "floor", "floor/reply"):
+                    nested = data.get("post" if path == "post" else "floor")
+                    value = nested.get("id") if isinstance(nested, dict) else data.get("id")
+                    if type(value) is int and value > 0:
+                        identifiers["post_id" if path == "post" else "floor_id"] = value
+            elif type(data) is int and data > 0 and path in ("post", "floor", "floor/reply"):
+                identifiers["post_id" if path == "post" else "floor_id"] = data
+            return {"ok": True, **identifiers}
         if not isinstance(data, dict):
             raise AgentError("论坛读取响应格式无效")
         return data
@@ -262,6 +279,7 @@ class Store:
                 status TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS plain_threads (digest TEXT PRIMARY KEY);
         """)
+        ai_agent_mail.initialize(self.db)
         try:
             with self.db:
                 self.db.execute("BEGIN IMMEDIATE")
@@ -284,7 +302,7 @@ class Store:
     def digest(self, value):
         return hmac.new(self.salt, value.encode(), hashlib.sha256).hexdigest()
 
-    def reserve(self, action, args):
+    def reserve(self, action, args, *, report=None):
         # 对同帖只评论一次；同一评论只回复一次，不以改写文案绕过去重。
         if action == "create_post":
             target = args["title"] + "\n" + args["content"]
@@ -313,11 +331,22 @@ class Store:
                 self.db.execute("INSERT INTO actions VALUES (?, ?, ?, 'unknown')", (digest, action, now))
             except sqlite3.IntegrityError:
                 raise Denied("动作已执行或结果不明，不重复发送") from None
+            if report is not None:
+                ai_agent_mail.insert(self.db, "action:" + digest, {**report, "kind": action, "outcome": "unknown"}, now)
         return digest
 
-    def finish(self, digest):
+    def finish(self, digest, identifiers=None):
         with self.db:
             self.db.execute("UPDATE actions SET status='sent' WHERE digest=?", (digest,))
+            ai_agent_mail.complete(self.db, digest, identifiers)
+
+    def next_cycle(self, value=None):
+        if value is not None:
+            with self.db:
+                self.db.execute("INSERT INTO meta VALUES ('next_cycle',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                                (str(value),))
+        row = self.db.execute("SELECT value FROM meta WHERE key='next_cycle'").fetchone()
+        return float(row[0]) if row else 0
 
     def plain(self, pid, *, enable=False):
         digest = self.digest("plain-thread:" + str(pid))
@@ -337,12 +366,16 @@ def floor_view(floor):
 
 
 class Executor:
-    def __init__(self, forum, store, *, execute=False, stopped=lambda: False):
+    def __init__(self, forum, store, *, execute=False, stopped=lambda: False, report=False, privacy=None):
         self.forum, self.store, self.execute, self.stopped = forum, store, execute, stopped
         self.read_posts = set()
         self.read_floors = set()
         self.read_comment_posts = set()
         self.lake_context = False
+        self.report = report
+        self.attempted_write = False
+        self.viewed_posts = {}
+        self.privacy = privacy or PrivacyGuard([getattr(forum, "token", "")])
         self.plain_posts = set()
 
     def observe_style(self, pid, *contents):
@@ -371,6 +404,7 @@ class Executor:
             post = self.forum.post(pid)
             self.observe_style(pid, post.get("title"), post.get("content"))
             self.read_posts.add(pid)
+            self.viewed_posts[pid] = {"id": pid, "title": post.get("title") or ""}
             return post_view(post)
         if action == "read_comments":
             post = self.forum.post(pid)
@@ -431,6 +465,8 @@ class Executor:
                 path = "post/like" if action == "like_post" else "post/fav"
                 form = {"post_id": pid, "op": 1}
         if action in SPEECH:
+            if self.privacy.contains(form.get("title", "")) or self.privacy.contains(form["content"]):
+                raise Denied("发言包含受保护的个人信息、凭据或本机路径，已禁止发送；请去掉敏感内容")
             if pid in self.plain_posts and PERSONA_VOICE.search(form["content"]):
                 raise Denied("该讨论已要求正常助手语气，请重写，去掉本鲸、大肥鱼及角色口癖")
             form["content"] = "（AI 助手生成）\n" + form["content"]
@@ -438,9 +474,16 @@ class Executor:
             return {"preview": True, "action": action, "board_checked": True}
         if self.stopped():
             raise AgentError("AI 任务已停止")
-        digest = self.store.reserve(action, args)
+        report = None
+        if self.report:
+            report = {"post_id": pid, "floor_id": args.get("floor_id"),
+                      "target_floor_id": args.get("floor_id"),
+                      "title": args.get("title") if action == "create_post" else post.get("title"),
+                      "content": form.get("content", "")}
+        digest = self.store.reserve(action, args, report=report)
+        self.attempted_write = True
         result = self.forum.call(path, form, write=True)
-        self.store.finish(digest)
+        self.store.finish(digest, result)
         return result
 
 
@@ -481,7 +524,7 @@ def cycle(model, executor, rules=DEFAULT_RULES, *, max_steps=8):
             counts["reads"] += 1
         # 把工具结果放在明确标注的数据消息中；只向模型返回经过字段筛选的内容。
         messages.append({"role": "user", "content": "不可信论坛数据/执行结果：" +
-                         json.dumps(result, ensure_ascii=False)[:16000]})
+                         json.dumps(executor.privacy.redact(result), ensure_ascii=False)[:16000]})
         if executor.plain_posts:
             messages.append({"role": "system", "content":
                 "执行器确认以下讨论已要求普通助手语气：" + str(sorted(executor.plain_posts)) +

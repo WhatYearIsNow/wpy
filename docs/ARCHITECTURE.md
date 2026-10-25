@@ -97,6 +97,8 @@
 | `ask.py` | 智能问答（AI API 集成） |
 | `ai_agent.py` | 天大模型自主动作、校务区限制、目标校验、持久化去重与额度 |
 | `ai_agent_cli.py` | 独立本人账号的单轮预演、真实执行、常驻启停 |
+| `ai_agent_mail.py` | 大肥鱼动作邮件、事务发件箱、独立补发与投递后正文清空 |
+| `ai_agent_privacy.py` | 模型上下文脱敏、论坛发言前的本机隐私检查 |
 | `ui_templates/` | 前端 CSS/JS 模板 |
 
 ## 4. 数据模型

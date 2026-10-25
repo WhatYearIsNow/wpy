@@ -377,7 +377,7 @@ def test_watch_temporary_errors_backoff_and_restore_signal_handlers(monkeypatch,
     args = SimpleNamespace(interval=8640, model_config="", rules_file="", state_dir=tmp_path,
                            execute=True, watch=True)
     assert cli.main(args) == 0
-    assert stop.waits == [17280]
+    assert stop.waits == [pytest.approx(17280, abs=1)]
     assert "模型暂时不可用" in capsys.readouterr().out
     assert all(cli.signal.getsignal(sig) == handler for sig, handler in handlers.items())
 

@@ -2,6 +2,8 @@
 Description=WPY autonomous AI forum assistant
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=1h
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -16,8 +18,10 @@ Environment=WPY_LOG_DIR=/var/lib/wpy-ai-agent/runtime/logs
 Environment=WPY_PAGES_DIR=/var/lib/wpy-ai-agent/runtime/pages
 Environment=WPY_AI_STATE_DIR=/var/lib/wpy-ai-agent/state
 EnvironmentFile=/etc/wpy/ai-agent.env
-# 认证失败需要维护者处理，不能由 systemd 无限续登。
-Restart=no
+# 认证失败退出 2，不能由 systemd 无限续登；异常崩溃按持久化时间恢复。
+Restart=on-failure
+RestartPreventExitStatus=2
+RestartSec=5min
 TimeoutStopSec=150
 StateDirectory=wpy-ai-agent
 StateDirectoryMode=0700
