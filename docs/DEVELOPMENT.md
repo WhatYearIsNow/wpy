@@ -172,7 +172,6 @@ WPY_PAGES_DIR=/path/to/pages
 # 服务
 WPY_HOST=127.0.0.1
 WPY_PORT=8765
-WPY_BOARD_TOKEN=your_board_token
 ```
 
 上面是配置项示意，Python 不会自动加载环境文件。在终端使用 `export`（PowerShell
@@ -225,9 +224,8 @@ HTTP Server (ThreadingTCPServer)
 ├── /api/topusers        → BoardDB.top_users()
 ├── /api/users           → BoardDB.users()
 ├── /api/me              → 当前角色
-├── /api/follow          → 关注列表（管理员）
-├── /api/metrics         → 指标快照（管理员）
-├── /api/wpy/*           → 湖底动作代理（管理员）
+├── /api/follow          → 个人关注列表（登录用户）
+├── /api/wpy/*           → 湖底动作代理（使用登录用户的 token）
 ├── /img/*               → 图片代理
 ├── /healthz             → 健康检查
 └── /login / /logout     → 认证
@@ -270,3 +268,14 @@ GitHub Actions 会在 Python 3.10 和 3.13 下运行测试、离线流水线和�
 - 测试代码与生产代码分离
 - 测试不修改生产数据
 - 测试失败不继续后续阶段
+
+## 看板身份验证
+
+看板只有 `guest` / `user`。`board_auth.py` 保存随机个人会话；`auth.login()` 验证本人账号，
+密码不落盘，论坛 token 不交给浏览器。`lake_actions.get/write` 必须显式传入当前 token，
+不得调用抓取账号的 `get_token()` 兜底。所有写请求需验证个人会话、同源和 CSRF。
+
+游客无需登录即可浏览，服务端拒绝游客写操作。个人关注按站点密钥摘要区分账号；
+论坛“我的帖子/收藏”分页获取并在个人会话内缓存一分钟，过滤只匹配本地已归档帖子，
+不能使用共享库中的 `是我的帖子/是我的收藏` 列代表访问者身份。
+网站整体校园网限制在部署网关保留，不在应用内猜测校园网网段。

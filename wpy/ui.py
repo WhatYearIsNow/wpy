@@ -38,7 +38,7 @@ HTML_SHELL = """<!DOCTYPE html>
     </div>
     <button class="btn-filter" id="btnfilter" onclick="togglePanel()">
       <span class="dot"></span>筛选</button>
-    <button class="btn-filter admin-only" id="btnnew" onclick="openComposer()">&#9998; 发帖</button>
+    <button class="btn-filter user-only" id="btnnew" onclick="openComposer()">&#9998; 发帖</button>
     <span class="rolebadge" id="rolebadge"></span>
   </div>
 
@@ -53,7 +53,7 @@ HTML_SHELL = """<!DOCTYPE html>
     <button class="chip" data-tab="1">校务</button>
     <button class="chip" data-tab="other">其他</button>
     <span class="divider"></span>
-    <span class="switch tiny admin-only" id="sw-mine"><i></i>我的</span>
+    <span class="switch tiny user-only" id="sw-mine"><i></i>我的</span>
     <span class="switch tiny" id="sw-fav"><i></i>收藏</span>
     <span class="switch tiny" id="sw-follow"><i></i>关注</span>
   </div>

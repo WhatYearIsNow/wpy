@@ -1,4 +1,4 @@
-"""热榜生成使用临时数据库，未配置时不包含默认访问令牌。"""
+"""热榜生成使用临时数据库，旧令牌环境变量也不能写入页面。"""
 import json
 import os
 from pathlib import Path
@@ -10,7 +10,7 @@ import pytest
 
 
 @pytest.mark.parametrize("token", [None, 'test-"token</script>'])
-def test_hot_page_has_only_explicit_token(tmp_path, token):
+def test_hot_page_never_embeds_legacy_token(tmp_path, token):
     data_dir = tmp_path / "data"
     build_dir = tmp_path / "build"
     data_dir.mkdir()
@@ -35,6 +35,8 @@ def test_hot_page_has_only_explicit_token(tmp_path, token):
     subprocess.run([sys.executable, str(script)], env=env, check=True, capture_output=True, text=True)
 
     html = (build_dir / "hot.html").read_text(encoding="utf-8")
-    token_line = next(line for line in html.splitlines() if line.startswith("const TOKEN = "))
-    assert json.loads(token_line[len("const TOKEN = "):-1]) == (token or "")
-    assert "</script>" not in token_line
+    assert "const TOKEN" not in html
+    assert 'params.set("token"' not in html
+    if token:
+        assert token not in html
+    assert 'new URLSearchParams({postId: r.id})' in html
