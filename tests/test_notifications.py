@@ -1,4 +1,5 @@
 """用合成消息验证个人通知，不访问论坛或真实邮箱。"""
+
 from email.message import Message
 from io import BytesIO
 import json
@@ -12,7 +13,13 @@ import pytest
 from wpy import http, notification_cli as cli
 from wpy import notification_mail as mail
 from wpy.notifications import (
-    AuthenticationError, ForumClient, NotificationStore, RateLimited, normalize, run_cycle, worker_lock,
+    AuthenticationError,
+    ForumClient,
+    NotificationStore,
+    RateLimited,
+    normalize,
+    run_cycle,
+    worker_lock,
 )
 
 
@@ -25,11 +32,20 @@ def offline(monkeypatch):
 
 
 def message(source="floors", kind_type=0, target=11, likes=2, **extra):
-    row = {"type": kind_type,
-           "post": {"id": 101, "title": "示例帖子", "content": "示例帖子正文", "like_count": likes},
-           "floor": {"id": target, "post_id": 101, "nickname": "示例用户", "content": "示例评论",
-                     "like_count": likes, "created_at": "2026-01-01T12:00:00"},
-           "to_floor": {"id": 10, "content": "示例原评论", "like_count": 3}, "is_read": False}
+    row = {
+        "type": kind_type,
+        "post": {"id": 101, "title": "示例帖子", "content": "示例帖子正文", "like_count": likes},
+        "floor": {
+            "id": target,
+            "post_id": 101,
+            "nickname": "示例用户",
+            "content": "示例评论",
+            "like_count": likes,
+            "created_at": "2026-01-01T12:00:00",
+        },
+        "to_floor": {"id": 10, "content": "示例原评论", "like_count": 3},
+        "is_read": False,
+    }
     row.update(extra)
     return row
 
@@ -46,10 +62,15 @@ def store(tmp_path):
         instance.close()
 
 
-@pytest.mark.parametrize("source,kind_type,expected", [
-    ("likes", 0, "post_like"), ("likes", 1, "floor_like"),
-    ("floors", 0, "post_comment"), ("floors", 1, "comment_reply"),
-])
+@pytest.mark.parametrize(
+    "source,kind_type,expected",
+    [
+        ("likes", 0, "post_like"),
+        ("likes", 1, "floor_like"),
+        ("floors", 0, "post_comment"),
+        ("floors", 1, "comment_reply"),
+    ],
+)
 def test_official_message_type_mapping(source, kind_type, expected):
     result = event(source, kind_type)
     assert result["kind"] == expected
@@ -78,8 +99,12 @@ def test_first_run_baselines_without_sending_and_later_changes_are_grouped(store
     sent = []
     assert store.ingest(snapshot) == {"baseline": True, "new": 0}
     assert store.deliver(lambda *args: sent.append(args))["sent"] == 0
-    changed = [event("likes", 0, likes=3), event("likes", 1, likes=1), event(),
-               event(kind_type=1, target=12)]
+    changed = [
+        event("likes", 0, likes=3),
+        event("likes", 1, likes=1),
+        event(),
+        event(kind_type=1, target=12),
+    ]
     assert store.ingest(changed)["new"] == 2
     assert store.deliver(lambda *args: sent.append(args)) == {"sent": 1, "failed": 0, "pending": 0}
     assert "评论" in sent[0][1] and "本轮观察增加 1" in sent[0][1]
@@ -127,8 +152,10 @@ def test_state_persists_and_cannot_be_reused_for_another_identity(tmp_path):
         assert second.ingest([event()])["new"] == 0
         assert second.deliver(lambda *args: True)["sent"] == 1
         second.close()
-        for account, recipient in [("other-test-account", "reader@example.invalid"),
-                                   ("test-account", "other@example.invalid")]:
+        for account, recipient in [
+            ("other-test-account", "reader@example.invalid"),
+            ("test-account", "other@example.invalid"),
+        ]:
             with pytest.raises(mail.NotificationError, match="另一账号或收件人"):
                 NotificationStore(directory, account, recipient)
     if os.name != "nt":
@@ -216,7 +243,9 @@ def test_truncated_or_repeated_pagination_is_not_committed(store, max_pages, rep
     def request(url, **kwargs):
         return {"code": 200, "data": {"list": [message("likes", 1, i) for i in range(1, 21)]}}
 
-    client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None, max_pages=max_pages)
+    client = ForumClient(
+        lambda: "test-token", request=request, sleep=lambda _: None, max_pages=max_pages
+    )
     with pytest.raises(mail.NotificationError, match="重复|上限"):
         run_cycle(client, store, lambda *a: True)
     assert not store.db.execute("SELECT * FROM meta WHERE key='initialized'").fetchone()
@@ -279,8 +308,14 @@ def test_pending_email_can_send_while_forum_is_unavailable(store):
 
 
 def test_html_is_escaped_and_mail_has_no_remote_images():
-    item = dict(event(kind_type=1), title='<script>alert("test")</script>', content='<img src="test">',
-                original="<b>原评论</b>", my_comment="<b>原评论</b>", increase=0)
+    item = dict(
+        event(kind_type=1),
+        title='<script>alert("test")</script>',
+        content='<img src="test">',
+        original="<b>原评论</b>",
+        my_comment="<b>原评论</b>",
+        increase=0,
+    )
     subject, text, body = mail.render_digest([item], "https://board.example.invalid/", test=True)
     assert "测试" in subject and "合成内容" in text
     assert "<script>" not in body and "<img " not in body
@@ -332,10 +367,22 @@ def test_enrichment_only_reads_new_context_once_per_post_and_floor(store):
     def request(url, **kwargs):
         calls.append(url)
         if "/post?" in url:
-            return {"code": 200, "data": {"post": {"id": 101, "title": "完整标题",
-                                                     "content": "完整帖子正文", "like_count": 9}}}
+            return {
+                "code": 200,
+                "data": {
+                    "post": {
+                        "id": 101,
+                        "title": "完整标题",
+                        "content": "完整帖子正文",
+                        "like_count": 9,
+                    }
+                },
+            }
         assert "/floor?" in url
-        return {"code": 200, "data": {"floor": {"id": 10, "content": "我的完整评论", "like_count": 5}}}
+        return {
+            "code": 200,
+            "data": {"floor": {"id": 10, "content": "我的完整评论", "like_count": 5}},
+        }
 
     client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
     assert client.enrich(store.new_events([first, second])) == [first, second]
@@ -359,7 +406,9 @@ def test_deleted_post_context_is_reported_without_dropping_notification(store):
     store.ingest([])
     item = event()
     item["post_content"] = ""
-    client = ForumClient(lambda: "test-token", request=lambda *a, **kw: {"code": 404}, sleep=lambda _: None)
+    client = ForumClient(
+        lambda: "test-token", request=lambda *a, **kw: {"code": 404}, sleep=lambda _: None
+    )
     client.enrich(store.new_events([item]))
     assert "已删除" in item["post_content"]
     assert store.ingest([item])["new"] == 1
@@ -380,8 +429,15 @@ def test_failed_context_fetch_does_not_advance_message_baseline(store):
     assert not store.db.execute("SELECT 1 FROM outbox").fetchone()
 
 
-@pytest.mark.parametrize("url", ["javascript:alert(1)", "https://test:secret@example.invalid/",
-                                 "https://example.invalid/?token=test", "https://example.invalid/#test"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "https://test:secret@example.invalid/",
+        "https://example.invalid/?token=test",
+        "https://example.invalid/#test",
+    ],
+)
 def test_unsafe_mail_links_are_rejected(url):
     with pytest.raises(mail.NotificationError):
         mail.validate_base_url(url)
@@ -389,8 +445,11 @@ def test_unsafe_mail_links_are_rejected(url):
 
 def config_file(tmp_path):
     path = tmp_path / "smtp.json"
-    path.write_text(json.dumps({"user": "sender@example.invalid", "pass": "test-code",
-                                "to": "reader@example.invalid"}))
+    path.write_text(
+        json.dumps(
+            {"user": "sender@example.invalid", "pass": "test-code", "to": "reader@example.invalid"}
+        )
+    )
     return path
 
 
@@ -415,19 +474,25 @@ def test_real_send_constructs_multipart_and_treats_quit_failure_as_accepted(tmp_
     class FakeSMTP:
         def __init__(self, host, port, **kwargs):
             assert kwargs["timeout"] == 30 and kwargs["context"].check_hostname
+
         def __enter__(self):
             return self
+
         def login(self, user, password):
             assert password == "test-code"
+
         def send_message(self, message):
             captured.append(message)
             return {}
+
         def __exit__(self, *args):
             raise smtplib.SMTPServerDisconnected("test quit failure")
 
     monkeypatch.setattr("smtplib.SMTP_SSL", FakeSMTP)
     config = mail.MailConfig.load(config_file(tmp_path))
-    mail.send_mail(config, *mail.render_digest(mail.test_events(), test=True), "<test-id@wpy.local>")
+    mail.send_mail(
+        config, *mail.render_digest(mail.test_events(), test=True), "<test-id@wpy.local>"
+    )
     assert captured[0]["Message-ID"] == "<test-id@wpy.local>"
     assert captured[0]["From"].addresses[0].display_name == "微北洋"
     assert captured[0].get_body(preferencelist=("html",)) is not None
@@ -440,12 +505,15 @@ def test_smtp_errors_do_not_expose_recipient_or_response(tmp_path, monkeypatch):
 
     monkeypatch.setattr("smtplib.SMTP_SSL", fail)
     with pytest.raises(mail.NotificationError) as caught:
-        mail.send_mail(mail.MailConfig.load(config_file(tmp_path)), "test", "text", "html", "<test@wpy.local>")
+        mail.send_mail(
+            mail.MailConfig.load(config_file(tmp_path)), "test", "text", "html", "<test@wpy.local>"
+        )
     assert "private detail" not in str(caught.value)
 
 
 def parse(*argv):
     from wpy.crawler.cli_app import build_parser
+
     return build_parser()[0].parse_args(["notify", *argv])
 
 
@@ -453,7 +521,9 @@ def test_cli_test_email_needs_no_forum_login_or_state(tmp_path, monkeypatch, cap
     calls = []
     monkeypatch.setattr(cli, "send_mail", lambda *args: calls.append(args))
     directory = tmp_path / "unused-state"
-    args = parse("--test-email", "--smtp-config", str(config_file(tmp_path)), "--state-dir", str(directory))
+    args = parse(
+        "--test-email", "--smtp-config", str(config_file(tmp_path)), "--state-dir", str(directory)
+    )
     assert cli.main(args) == 0
     assert len(calls) == 1 and "测试" in calls[0][1]
     assert not directory.exists()
@@ -477,22 +547,27 @@ def test_watch_default_interval_and_backoff():
             if error:
                 raise error
             return []
+
         def enrich(self, events):
             return events
 
     class Store:
         def scan_options(self):
             return {}
+
         def new_events(self, events):
             return []
+
         def deliver(self, sender):
             return {"sent": 0, "failed": 0, "pending": 0}
+
         def ingest(self, snapshot, base_url):
             return {"baseline": False, "new": 0}
 
     class Stop:
         def is_set(self):
             return len(waits) == 3
+
         def wait(self, value):
             waits.append(value)
 
@@ -537,7 +612,10 @@ def test_incremental_floor_scan_loads_multiple_new_pages_then_stops_at_cursor(st
             return {"code": 200, "data": {"list": []}}
         page = int(parse_qs(urlsplit(url).query)["page"][0])
         top = 125 - (page - 1) * 20
-        return {"code": 200, "data": {"list": [message(target=i) for i in range(top, top - 20, -1)]}}
+        return {
+            "code": 200,
+            "data": {"list": [message(target=i) for i in range(top, top - 20, -1)]},
+        }
 
     client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
     result = run_cycle(client, store, lambda *args: True)
@@ -579,7 +657,7 @@ def test_json_response_limit_and_retry_after(monkeypatch):
     class Response(BytesIO):
         status = 200
 
-    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: Response(b'{}' * 10))
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: Response(b"{}" * 10))
     with pytest.raises(ValueError, match="too large"):
         http.request_json("https://example.invalid/", throttle=False, max_bytes=5)
     headers = Message()

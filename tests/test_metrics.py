@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """wpy.metrics 的单元测试。"""
+
 import time
 import pytest
 from wpy.metrics import MetricsRegistry, StructuredLogger, metrics
@@ -10,23 +11,27 @@ class TestCounter:
 
     def test_initial_value(self):
         from wpy.metrics import Counter
+
         c = Counter()
         assert c.get() == 0
 
     def test_increment(self):
         from wpy.metrics import Counter
+
         c = Counter()
         c.inc()
         assert c.get() == 1
 
     def test_increment_n(self):
         from wpy.metrics import Counter
+
         c = Counter()
         c.inc(5)
         assert c.get() == 5
 
     def test_multiple_increments(self):
         from wpy.metrics import Counter
+
         c = Counter()
         c.inc(2)
         c.inc(3)
@@ -39,6 +44,7 @@ class TestTimer:
 
     def test_initial_stats(self):
         from wpy.metrics import Timer
+
         t = Timer()
         stats = t.stats()
         assert stats["count"] == 0
@@ -47,6 +53,7 @@ class TestTimer:
 
     def test_observe(self):
         from wpy.metrics import Timer
+
         t = Timer()
         t.observe(1.0)
         stats = t.stats()
@@ -56,6 +63,7 @@ class TestTimer:
 
     def test_multiple_observations(self):
         from wpy.metrics import Timer
+
         t = Timer()
         t.observe(0.5)
         t.observe(1.5)
@@ -116,6 +124,7 @@ class TestStructuredLogger:
     def test_write_creates_entry(self, tmp_path):
         from wpy.metrics import StructuredLogger
         import json
+
         path = str(tmp_path / "test.jsonl")
         logger = StructuredLogger(path)
         logger.write("INFO", "test message", "test_module")
@@ -132,6 +141,7 @@ class TestStructuredLogger:
     def test_multiple_entries(self, tmp_path):
         from wpy.metrics import StructuredLogger
         import json
+
         path = str(tmp_path / "test.jsonl")
         logger = StructuredLogger(path)
         logger.write("INFO", "msg1")
@@ -145,6 +155,7 @@ class TestStructuredLogger:
 
     def test_flush_empty(self, tmp_path):
         from wpy.metrics import StructuredLogger
+
         path = str(tmp_path / "test.jsonl")
         logger = StructuredLogger(path)
         logger.flush()  # 不应报错
@@ -153,6 +164,7 @@ class TestStructuredLogger:
     def test_auto_flush_at_50(self, tmp_path):
         from wpy.metrics import StructuredLogger
         import json
+
         path = str(tmp_path / "test.jsonl")
         logger = StructuredLogger(path)
         for i in range(55):

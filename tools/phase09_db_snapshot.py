@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Phase 9: snapshot sitewide.db counts/schema for before/after compare."""
+
 from __future__ import annotations
 
 import json
@@ -16,13 +17,16 @@ OUT = os.path.join(os.path.dirname(ROOT), "docs", "refactor")
 def snapshot(label: str):
     c = sqlite3.connect(DB)
     tables = [
-        "posts", "floors", "official_replies", "pagination_events",
-        "essence_ids", "images", "scrape_progress",
+        "posts",
+        "floors",
+        "official_replies",
+        "pagination_events",
+        "essence_ids",
+        "images",
+        "scrape_progress",
     ]
-    counts = {t: c.execute("select count(*) from %s" % t).fetchone()[0]
-              for t in tables}
-    schema = {t: [r[1] for r in c.execute('pragma table_info("%s")' % t)]
-              for t in tables}
+    counts = {t: c.execute("select count(*) from %s" % t).fetchone()[0] for t in tables}
+    schema = {t: [r[1] for r in c.execute('pragma table_info("%s")' % t)] for t in tables}
     marks = {
         "body_ok": c.execute('select count(*) from posts where "正文已补"=1').fetchone()[0],
         "body_fail": c.execute('select count(*) from posts where "正文已补"=-1').fetchone()[0],
@@ -36,10 +40,9 @@ def snapshot(label: str):
         "img_local": c.execute('select count(*) from images where "已有本地"=1').fetchone()[0],
     }
     progress = c.execute(
-        'select "type",name,status,last_page,fetched from scrape_progress '
-        'order by "type"').fetchall()
-    pe = c.execute(
-        "select kind, count(*) from pagination_events group by kind").fetchall()
+        'select "type",name,status,last_page,fetched from scrape_progress order by "type"'
+    ).fetchall()
+    pe = c.execute("select kind, count(*) from pagination_events group by kind").fetchall()
     c.close()
     data = {
         "label": label,

@@ -1,20 +1,35 @@
 # -*- coding: utf-8 -*-
 """列表抓取阶段。"""
+
 from __future__ import annotations
 
 from ..config import (
-    EMPTY_STREAK_STOP, MAX_GAP_WORTH_REPORT, RECOMMEND_TYPE, REQUEST_INTERVAL,
+    EMPTY_STREAK_STOP,
+    MAX_GAP_WORTH_REPORT,
+    RECOMMEND_TYPE,
+    REQUEST_INTERVAL,
 )
 from ..db import (
-    _int, count_posts, ensure_type_row, mark_status, next_page, open_db,
-    record_pagination_event, save_posts, update_scrape_page,
+    _int,
+    count_posts,
+    ensure_type_row,
+    mark_status,
+    next_page,
+    open_db,
+    record_pagination_event,
+    save_posts,
+    update_scrape_page,
 )
 from ..http import FatalError, Fuse, api_get, pace, with_retry
 from ..runlog import log
 from .shared import (
-    _parse_since_date, crawlable_types, usable_types, warn_if_only_recommend,
+    _parse_since_date,
+    crawlable_types,
+    usable_types,
+    warn_if_only_recommend,
     warn_unknown_types,
 )
+
 
 def fetch_list(token, tid, page, page_size):
     """拉一页列表，返回 (items, total, total_pages)。
@@ -32,21 +47,29 @@ def fetch_list(token, tid, page, page_size):
     因此这里把 total_pages 标记为 None（不可用），由调用方改用
     「翻到空页」判结束。返回值保留 total 仅供显示参考。
     """
-    data = api_get(token, "posts", {
-        "type": tid, "search_mode": 0, "etag": "", "content": "",
-        "tag_id": "", "department_id": "",
-        "page_size": page_size, "page": page,
-    })
+    data = api_get(
+        token,
+        "posts",
+        {
+            "type": tid,
+            "search_mode": 0,
+            "etag": "",
+            "content": "",
+            "tag_id": "",
+            "department_id": "",
+            "page_size": page_size,
+            "page": page,
+        },
+    )
     items = data.get("list") or []
     total = data.get("total")
-    return items, total, None        # total_pages 不可信，一律 None
+    return items, total, None  # total_pages 不可信，一律 None
 
 
 def do_probe(token, type_names, page_size):
     """每个板块只拉第 1 页：确认可达性、总量、页数、以及 page_size 是否生效。"""
     log("=== 探测模式（每个板块只拉第 1 页）===")
-    print("%-5s %-12s %10s %8s %8s  %s"
-          % ("type", "板块", "total", "页数", "本页条数", "状态"))
+    print("%-5s %-12s %10s %8s %8s  %s" % ("type", "板块", "total", "页数", "本页条数", "状态"))
     print("-" * 62)
     total_all = 0
     for tid in crawlable_types(type_names):
@@ -54,13 +77,11 @@ def do_probe(token, type_names, page_size):
         try:
             items, total, tp = fetch_list(token, tid, 1, page_size)
             flag = "可达" if len(items) <= page_size else "page_size 生效"
-            print("%-5s %-12s %10s %8s %8s  %s"
-                  % (tid, name, total, tp, len(items), flag))
+            print("%-5s %-12s %10s %8s %8s  %s" % (tid, name, total, tp, len(items), flag))
             if isinstance(total, int) and total > 0:
                 total_all += total
         except Exception as e:
-            print("%-5s %-12s %10s %8s %8s  失败：%s"
-                  % (tid, name, "-", "-", "-", str(e)[:50]))
+            print("%-5s %-12s %10s %8s %8s  失败：%s" % (tid, name, "-", "-", "-", str(e)[:50]))
         pace(REQUEST_INTERVAL)
     print("-" * 62)
     print("各板块 total 之和约 %s 条（含精华重复计，仅作量级参考）" % total_all)
@@ -112,16 +133,22 @@ def do_list(token, args, type_names):
     if getattr(args, "types", None):
         targets = [t for t in targets if t in set(args.types)]
         if not targets:
-            log("错误：有效板块过滤后为空，列表阶段不执行。"
-                "可用：%s" % "、".join(
-                    "%s=%s" % (k, type_names[k]) for k in sorted(type_names)))
+            log(
+                "错误：有效板块过滤后为空，列表阶段不执行。"
+                "可用：%s" % "、".join("%s=%s" % (k, type_names[k]) for k in sorted(type_names))
+            )
             conn.close()
             return
 
-    log("=== 阶段一：列表抓取（page_size=%d，板块 %d 个%s%s）==="
-        % (page_size, len(targets),
-           "，本轮上限 %d 条" % args.limit if args.limit else "",
-           "，增量" if since_id else ""))
+    log(
+        "=== 阶段一：列表抓取（page_size=%d，板块 %d 个%s%s）==="
+        % (
+            page_size,
+            len(targets),
+            "，本轮上限 %d 条" % args.limit if args.limit else "",
+            "，增量" if since_id else "",
+        )
+    )
 
     # --max-total 是「库中总条数」上限：先看库里已有多少，只在余额不够时继续抓。
     # 与 --limit 分开是因为两者语义不同：--limit 是「本轮处理多少」，
@@ -132,12 +159,10 @@ def do_list(token, args, type_names):
     if max_total:
         budget = max_total - already
         if budget <= 0:
-            log("库里已有 %d 条，已达到总数上限 %d 条，无需再抓。"
-                % (already, max_total))
+            log("库里已有 %d 条，已达到总数上限 %d 条，无需再抓。" % (already, max_total))
             conn.close()
             return
-        log("库里已有 %d 条，本轮还可抓 %d 条（总数上限 %d）"
-            % (already, budget, max_total))
+        log("库里已有 %d 条，本轮还可抓 %d 条（总数上限 %d）" % (already, budget, max_total))
     # --limit 在 list 阶段同样表示「本轮最多写入多少条」
     if args.limit:
         budget = args.limit if budget is None else min(budget, args.limit)
@@ -159,9 +184,9 @@ def do_list(token, args, type_names):
 
         limit_page = (page - 1 + args.limit_pages) if args.limit_pages else None
         hit_old = False
-        seen_ids = set()        # 该板块已见过的 id，用于去重与断层检测
-        prev_min_id = None      # 上一页的最小 id，用于发现漏帖断层
-        empty_streak = 0        # 连续多少页没有新帖
+        seen_ids = set()  # 该板块已见过的 id，用于去重与断层检测
+        prev_min_id = None  # 上一页的最小 id，用于发现漏帖断层
+        empty_streak = 0  # 连续多少页没有新帖
         while True:
             if limit_page and page > limit_page:
                 log("板块 %s 达到本轮页数上限，下次运行可续抓" % name)
@@ -169,14 +194,15 @@ def do_list(token, args, type_names):
             try:
                 items, total, total_pages = with_retry(
                     lambda: fetch_list(token, tid, page, page_size),
-                    "板块%s第%d页" % (name, page), fuse)
+                    "板块%s第%d页" % (name, page),
+                    fuse,
+                )
             except FatalError:
                 conn.close()
                 raise
             except Exception as e:
                 mark_status(conn, tid, "error", str(e)[:300])
-                log("板块 %s 第 %d 页失败，进度已存，下次可续抓：%s"
-                    % (name, page, str(e)[:150]))
+                log("板块 %s 第 %d 页失败，进度已存，下次可续抓：%s" % (name, page, str(e)[:150]))
                 break
 
             if not items:
@@ -197,8 +223,12 @@ def do_list(token, args, type_names):
                 dup = sum(1 for i in page_ids if i in seen_ids)
                 if dup:
                     record_pagination_event(
-                        conn, tid, page, "overlap",
-                        "本页 %d 条中 %d 条与之前页重复" % (len(page_ids), dup))
+                        conn,
+                        tid,
+                        page,
+                        "overlap",
+                        "本页 %d 条中 %d 条与之前页重复" % (len(page_ids), dup),
+                    )
                 # id 断层只做「疑似」记录，不能当成漏帖：
                 # 全站 id 是所有板块共享的，本板块两页之间夹着别的板块的帖子
                 # 是正常的（实测缺口动辄几十个且 id 连续，正是别的板块）。
@@ -210,13 +240,17 @@ def do_list(token, args, type_names):
                         gap = [i for i in range(lo, hi) if i not in seen_ids]
                         if gap:
                             record_pagination_event(
-                                conn, tid, page, "gap",
+                                conn,
+                                tid,
+                                page,
+                                "gap",
                                 "与上页之间可能有 %d 个帖子被置顶帖挤出"
-                                "（id %s）"
-                                % (len(gap), ",".join(str(g) for g in gap[:5])))
+                                "（id %s）" % (len(gap), ",".join(str(g) for g in gap[:5])),
+                            )
             if page_ids:
-                prev_min_id = min(page_ids) if prev_min_id is None \
-                    else min(prev_min_id, min(page_ids))
+                prev_min_id = (
+                    min(page_ids) if prev_min_id is None else min(prev_min_id, min(page_ids))
+                )
             seen_ids.update(page_ids)
 
             # ---- 终止判定 ----
@@ -247,8 +281,7 @@ def do_list(token, args, type_names):
                     save_posts(conn, stale)
             # 日期限制：只保留指定日期及以后发布的；遇到更早的说明该板块已到边界
             if since_date:
-                fresh = [it for it in wrote
-                         if str(it.get("created_at") or "")[:10] >= since_date]
+                fresh = [it for it in wrote if str(it.get("created_at") or "")[:10] >= since_date]
                 if len(fresh) < len(wrote):
                     hit_old = True
                 wrote = fresh
@@ -266,12 +299,13 @@ def do_list(token, args, type_names):
                 # 不再显示百分比：服务端的 total 严重偏小（说 20 页、
                 # 实际有 1200+ 页），拿它算百分比会一直卡在 100% 却还在抓，
                 # 反而误导。改为显示已翻页数和累计条数。
-                log("  %s 已翻 %d 页，本页新增 %d 条，全库累计 %d 条"
-                    % (name, page, len(wrote), got))
+                log(
+                    "  %s 已翻 %d 页，本页新增 %d 条，全库累计 %d 条"
+                    % (name, page, len(wrote), got)
+                )
             if budget is not None and budget <= 0:
                 # 达到总条数上限：不能把板块标记为 done，否则续抓会跳过剩余页
-                log("已达到本轮总条数上限 %d 条，停下。重新运行可继续续抓。"
-                    % args.limit)
+                log("已达到本轮总条数上限 %d 条，停下。重新运行可继续续抓。" % args.limit)
                 conn.close()
                 return
             if hit_old:
@@ -286,12 +320,13 @@ def do_list(token, args, type_names):
                 break
             if empty_streak >= EMPTY_STREAK_STOP:
                 mark_status(conn, tid, "done")
-                log("板块 %s 连续 %d 页没有新帖，判定已抓完（共 %d 页）"
-                    % (name, EMPTY_STREAK_STOP, page))
+                log(
+                    "板块 %s 连续 %d 页没有新帖，判定已抓完（共 %d 页）"
+                    % (name, EMPTY_STREAK_STOP, page)
+                )
                 break
             page += 1
             pace(REQUEST_INTERVAL)
 
     conn.close()
     log("阶段一结束。重新运行 list 可继续未完成的板块。")
-

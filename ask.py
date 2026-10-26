@@ -8,6 +8,7 @@
 
 注意: 此脚本仅为兼容旧用法保留，推荐使用 `python -m wpy ask`。
 """
+
 import sys
 import os
 

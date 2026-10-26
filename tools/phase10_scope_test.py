@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Phase 10 临时库测试：repair 作用域 + invalid type 提示。不访问真实 sitewide.db。"""
+
 from __future__ import annotations
 
 import os
@@ -11,6 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from wpy.cli import _ensure_utf8_stdio
+
 _ensure_utf8_stdio()
 
 _TMP = tempfile.mkdtemp(prefix="wpy_phase10_")
@@ -31,27 +33,69 @@ def check(name, cond, detail=""):
 def seed(conn):
     posts = []
     # type2 incomplete: floors 0 < comment_count 2, marked done
-    posts.append({
-        "id": 2001, "uid": 1, "title": "a", "content": "c",
-        "created_at": "2026-01-01", "nickname": "n", "user_info": {},
-        "type": 2, "department": {}, "tag": {}, "comment_count": 2,
-        "image_urls": [], "like_count": 0, "fav_count": 0, "visit_count": 0,
-        "e_tag": "", "solved": False,
-    })
-    posts.append({
-        "id": 1001, "uid": 2, "title": "b", "content": "c",
-        "created_at": "2026-01-01", "nickname": "n", "user_info": {},
-        "type": 1, "department": {}, "tag": {}, "comment_count": 2,
-        "image_urls": [], "like_count": 0, "fav_count": 0, "visit_count": 0,
-        "e_tag": "", "solved": False,
-    })
-    posts.append({
-        "id": 3001, "uid": 3, "title": "c", "content": "c",
-        "created_at": "2026-01-01", "nickname": "n", "user_info": {},
-        "type": 3, "department": {}, "tag": {}, "comment_count": 2,
-        "image_urls": [], "like_count": 0, "fav_count": 0, "visit_count": 0,
-        "e_tag": "", "solved": False,
-    })
+    posts.append(
+        {
+            "id": 2001,
+            "uid": 1,
+            "title": "a",
+            "content": "c",
+            "created_at": "2026-01-01",
+            "nickname": "n",
+            "user_info": {},
+            "type": 2,
+            "department": {},
+            "tag": {},
+            "comment_count": 2,
+            "image_urls": [],
+            "like_count": 0,
+            "fav_count": 0,
+            "visit_count": 0,
+            "e_tag": "",
+            "solved": False,
+        }
+    )
+    posts.append(
+        {
+            "id": 1001,
+            "uid": 2,
+            "title": "b",
+            "content": "c",
+            "created_at": "2026-01-01",
+            "nickname": "n",
+            "user_info": {},
+            "type": 1,
+            "department": {},
+            "tag": {},
+            "comment_count": 2,
+            "image_urls": [],
+            "like_count": 0,
+            "fav_count": 0,
+            "visit_count": 0,
+            "e_tag": "",
+            "solved": False,
+        }
+    )
+    posts.append(
+        {
+            "id": 3001,
+            "uid": 3,
+            "title": "c",
+            "content": "c",
+            "created_at": "2026-01-01",
+            "nickname": "n",
+            "user_info": {},
+            "type": 3,
+            "department": {},
+            "tag": {},
+            "comment_count": 2,
+            "image_urls": [],
+            "like_count": 0,
+            "fav_count": 0,
+            "visit_count": 0,
+            "e_tag": "",
+            "solved": False,
+        }
+    )
     save_posts(conn, posts)
     for pid in (2001, 1001, 3001):
         mark_post_comment_status(conn, pid, 1)  # pretend complete but no floors
@@ -74,8 +118,7 @@ def main():
     # 1) ids scope
     n = reset_incomplete_comments(conn, ids=[2001])
     f = flags(conn)
-    check("repair ids scope", f[2001] == 0 and f[1001] == 1 and f[3001] == 1 and n >= 0,
-          str(f))
+    check("repair ids scope", f[2001] == 0 and f[1001] == 1 and f[3001] == 1 and n >= 0, str(f))
     if not (f[2001] == 0 and f[1001] == 1):
         fails.append("repair_ids")
 
@@ -104,8 +147,7 @@ def main():
     # 4) global repair when no scope/limit
     n = reset_incomplete_comments(conn)
     f = flags(conn)
-    check("repair global", f[2001] == 0 and f[1001] == 0 and f[3001] == 0 and n > 0,
-          str(f))
+    check("repair global", f[2001] == 0 and f[1001] == 0 and f[3001] == 0 and n > 0, str(f))
     if f[1001] != 0:
         fails.append("repair_global")
 
@@ -115,8 +157,15 @@ def main():
     mark_post_comment_status(conn, 3001, 1)
     # 2001 is 0 after global repair
     args = SimpleNamespace(
-        page_size=20, concurrency=1, limit=1, types=[], ids=[2001],
-        order=1, official=False, no_comment_filter=False, no_repair=False,
+        page_size=20,
+        concurrency=1,
+        limit=1,
+        types=[],
+        ids=[2001],
+        order=1,
+        official=False,
+        no_comment_filter=False,
+        no_repair=False,
         interval=0,
     )
 
@@ -138,8 +187,11 @@ def main():
     comment_mod.with_retry = fake_with_retry
     do_comment("tok", args)
     f = flags(conn)
-    check("do_comment ids scoped repair", f[1001] == 1 and f[3001] == 1,
-          "after ids comment run " + str(f))
+    check(
+        "do_comment ids scoped repair",
+        f[1001] == 1 and f[3001] == 1,
+        "after ids comment run " + str(f),
+    )
     if f[1001] != 1 or f[3001] != 1:
         fails.append("do_comment_scope")
 
@@ -152,17 +204,24 @@ def main():
 
     # 7) do_list invalid types → explicit message, no write
     args_l = SimpleNamespace(
-        page_size=5, types=[7], limit=5, since_id=0, since_date="",
-        incremental=False, limit_pages=0, max_total=0, interval=0,
+        page_size=5,
+        types=[7],
+        limit=5,
+        since_id=0,
+        since_date="",
+        incremental=False,
+        limit_pages=0,
+        max_total=0,
+        interval=0,
     )
     import wpy.crawler.list as list_mod
+
     list_mod.api_get = fake_api_get
     list_mod.with_retry = fake_with_retry
     before = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
     do_list("tok", args_l, tn)
     after = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
-    check("do_list invalid type no-op explicit", after == before,
-          "posts %s->%s" % (before, after))
+    check("do_list invalid type no-op explicit", after == before, "posts %s->%s" % (before, after))
 
     conn.close()
     print("-" * 40)

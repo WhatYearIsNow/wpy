@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """wpy.content_type 的单元测试。"""
+
 from wpy.content_type import guess_type
 
 

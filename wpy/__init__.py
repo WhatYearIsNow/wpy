@@ -12,6 +12,7 @@
     WPY_BOARD_TOKEN=口令 python -m wpy serve --host 0.0.0.0 --port 8765 --no-open
     定时更新：WPY_ACCOUNT=... WPY_PASSWORD=... python -m wpy update --no-confirm
 """
+
 from .cli import main
 
 __all__ = ["main"]

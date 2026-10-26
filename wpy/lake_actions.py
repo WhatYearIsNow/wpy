@@ -6,6 +6,7 @@
   - token 登录一次后缓存在内存里，失效自动重登；
   - 相邻写操作强制间隔，避免高频动作触发风控。
 """
+
 import threading
 import time
 import urllib.parse
@@ -23,8 +24,9 @@ def _request_json_safe(url, token=None, method="GET", headers=None, body=None):
     湖底接口会把业务错误（如 code=404 post not found）直接放在 HTTP
     状态码里，不读体的话只能看到一行 'HTTP Error 404'。"""
     try:
-        return request_json(url, token=token, method=method,
-                            headers=headers, body=body, throttle=False)
+        return request_json(
+            url, token=token, method=method, headers=headers, body=body, throttle=False
+        )
     except urllib.error.HTTPError as e:
         try:
             raw = e.read().decode("utf-8", "replace")
@@ -35,11 +37,12 @@ def _request_json_safe(url, token=None, method="GET", headers=None, body=None):
             pass
         return {"code": e.code, "msg": "HTTP %s" % e.code}
 
+
 _mu = threading.Lock()
 _token = {"v": None, "at": 0.0}
 _last_write = 0.0
-_WRITE_GAP = 1.5            # 相邻写操作最小间隔（秒）
-_TOKEN_TTL = 6 * 60 * 60    # token 缓存 6 小时
+_WRITE_GAP = 1.5  # 相邻写操作最小间隔（秒）
+_TOKEN_TTL = 6 * 60 * 60  # token 缓存 6 小时
 
 
 def _fresh_token():
@@ -47,7 +50,7 @@ def _fresh_token():
         now = time.time()
         if _token["v"] and now - _token["at"] < _TOKEN_TTL:
             return _token["v"]
-    tok = get_token(interactive=False)   # 缺凭据时抛 FatalError
+    tok = get_token(interactive=False)  # 缺凭据时抛 FatalError
     with _mu:
         _token["v"] = tok
         _token["at"] = time.time()
@@ -70,8 +73,7 @@ def _pace():
 
 
 def _encode(form):
-    return "&".join(
-        "%s=%s" % (k, urllib.parse.quote(str(v))) for k, v in form.items())
+    return "&".join("%s=%s" % (k, urllib.parse.quote(str(v))) for k, v in form.items())
 
 
 def write(path, form):
@@ -87,10 +89,11 @@ def write(path, form):
         except FatalError as e:
             return {"code": 500, "msg": "服务端未配置湖底账号凭据：%s" % e}
         r = _request_json_safe(
-            LAKE_API + path, method="POST",
-            headers={"token": tok,
-                     "Content-Type": "application/x-www-form-urlencoded"},
-            body=_encode(form))
+            LAKE_API + path,
+            method="POST",
+            headers={"token": tok, "Content-Type": "application/x-www-form-urlencoded"},
+            body=_encode(form),
+        )
         code = r.get("code")
         if code == 200:
             return r

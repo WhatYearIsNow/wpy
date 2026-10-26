@@ -3,14 +3,21 @@
 
 board 传 None、"all" 或空串时查全站榜；传数字时按板块过滤（原有行为）。
 """
+
 COL_MAP = {"view": "浏览量", "like": "点赞数", "comment": "评论数", "fav": "收藏数"}
 BOARD_MAP = {
-    1: "校务专区", 2: "青年湖底", 3: "学习新知", 4: "交友恋爱",
-    5: "二次元", 6: "摆摊", 8: "数码科技", 13: "美食专区",
+    1: "校务专区",
+    2: "青年湖底",
+    3: "学习新知",
+    4: "交友恋爱",
+    5: "二次元",
+    6: "摆摊",
+    8: "数码科技",
+    13: "美食专区",
 }
 WINDOW_SQL = {
-    "day":   "replace(substr(发布时间,1,19),'T',' ') > datetime('now','localtime','-1 day')",
-    "week":  "replace(substr(发布时间,1,19),'T',' ') > datetime('now','localtime','-7 days')",
+    "day": "replace(substr(发布时间,1,19),'T',' ') > datetime('now','localtime','-1 day')",
+    "week": "replace(substr(发布时间,1,19),'T',' ') > datetime('now','localtime','-7 days')",
     "month": "replace(substr(发布时间,1,19),'T',' ') > datetime('now','localtime','-30 days')",
 }
 
@@ -44,6 +51,7 @@ def query_ranking(db_path, board=None, dim="view", window="all", limit=50):
     limit = max(1, min(int(limit), 200))
 
     import sqlite3
+
     db = sqlite3.connect(str(db_path))
     try:
         db.row_factory = sqlite3.Row
@@ -57,16 +65,18 @@ def query_ranking(db_path, board=None, dim="view", window="all", limit=50):
 
     result = []
     for r in rows:
-        result.append({
-            "id": r["id"],
-            "标题": r["标题"],
-            "作者": r["作者"],
-            "分管部门": r["分管部门"],
-            "板块ID": r["板块ID"],
-            "点赞数": r["点赞数"] or 0,
-            "评论数": r["评论数"] or 0,
-            "收藏数": r["收藏数"] or 0,
-            "浏览量": r["浏览量"] or 0,
-            "发布时间": _fmt_time(r["发布时间"]),
-        })
+        result.append(
+            {
+                "id": r["id"],
+                "标题": r["标题"],
+                "作者": r["作者"],
+                "分管部门": r["分管部门"],
+                "板块ID": r["板块ID"],
+                "点赞数": r["点赞数"] or 0,
+                "评论数": r["评论数"] or 0,
+                "收藏数": r["收藏数"] or 0,
+                "浏览量": r["浏览量"] or 0,
+                "发布时间": _fmt_time(r["发布时间"]),
+            }
+        )
     return board_name, result

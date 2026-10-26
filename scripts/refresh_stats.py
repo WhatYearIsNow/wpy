@@ -11,6 +11,7 @@
 环境变量:
   自动加载 deploy/env.update 中的配置（学号密码等）。
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,6 +45,7 @@ from wpy.crawler.comment import crawl_one_post  # noqa: E402
 
 class FakeArgs:
     """crawl_one_post 需要的参数对象。"""
+
     page_size = 20
     order = 0
     official = True
@@ -61,16 +63,16 @@ def refresh_one(conn, token, pid, fuse, lock, dry=False):
         return None
     old_like, old_fav, old_cmt, old_visit, cmt_done = row
 
-    data = with_retry(lambda: api_get(token, "post", {"id": pid}),
-                      f"帖子{pid}详情", fuse)
+    data = with_retry(lambda: api_get(token, "post", {"id": pid}), f"帖子{pid}详情", fuse)
     post = data.get("post") or {}
     new_like = int(post.get("like_count") or 0)
     new_fav = int(post.get("fav_count") or 0)
     new_cmt = int(post.get("comment_count") or 0)
     new_visit = int(post.get("visit_count") or 0)
 
-    changed = (new_like != old_like or new_fav != old_fav
-               or new_cmt != old_cmt or new_visit != old_visit)
+    changed = (
+        new_like != old_like or new_fav != old_fav or new_cmt != old_cmt or new_visit != old_visit
+    )
     cmt_grew = new_cmt > old_cmt and cmt_done == 1
 
     if changed and not dry:
@@ -84,8 +86,9 @@ def refresh_one(conn, token, pid, fuse, lock, dry=False):
             conn.execute('DELETE FROM official_replies WHERE "帖子ID"=?', (pid,))
             conn.commit()
             try:
-                n_floors = crawl_one_post(conn, token, pid, FakeArgs(),
-                                          fuse, lock, {"done": 0, "fail": 0})
+                n_floors = crawl_one_post(
+                    conn, token, pid, FakeArgs(), fuse, lock, {"done": 0, "fail": 0}
+                )
                 log(f"  帖 {pid} 评论重抓完成：{old_cmt} -> {new_cmt}（{n_floors} 层）")
             except FatalError as e:
                 log(f"  帖 {pid} 评论重抓失败: {e}")
@@ -93,8 +96,11 @@ def refresh_one(conn, token, pid, fuse, lock, dry=False):
                 log(f"  帖 {pid} 评论重抓异常: {e}")
 
     return {
-        "pid": pid, "changed": changed, "cmt_grew": cmt_grew,
-        "old_cmt": old_cmt, "new_cmt": new_cmt,
+        "pid": pid,
+        "changed": changed,
+        "cmt_grew": cmt_grew,
+        "old_cmt": old_cmt,
+        "new_cmt": new_cmt,
     }
 
 
@@ -113,25 +119,23 @@ def main():
 
     conn = open_db()
     if args.all:
-        rows = conn.execute(
-            "SELECT id FROM posts WHERE 正文已补=1 ORDER BY id"
-        ).fetchall()
+        rows = conn.execute("SELECT id FROM posts WHERE 正文已补=1 ORDER BY id").fetchall()
         log("全量刷新模式：刷所有正文已补的帖")
     else:
         rows = conn.execute(
-            "SELECT id FROM posts "
-            "WHERE 发布时间 >= datetime('now', ?) AND 正文已补=1 ORDER BY id",
+            "SELECT id FROM posts WHERE 发布时间 >= datetime('now', ?) AND 正文已补=1 ORDER BY id",
             (f"-{args.days} days",),
         ).fetchall()
     ids = [r[0] for r in rows]
     if args.limit:
-        ids = ids[-args.limit:]
+        ids = ids[-args.limit :]
     total = len(ids)
     log(f"待刷新 {total} 条，qps={args.qps}，dry_run={args.dry_run}")
 
     fuse = Fuse()
     base_delay = 1.0 / args.qps
     import threading
+
     lock = threading.Lock()
     n_changed = 0
     n_cmt = 0
@@ -150,8 +154,10 @@ def main():
             if n % 500 == 0:
                 rate = n / (time.time() - t0)
                 eta = (total - n) / rate if rate else 0
-                log(f"  进度 {n}/{total}，字段变化 {n_changed}，评论增长 {n_cmt}，"
-                    f"失败 {n_fail}，ETA {eta/60:.0f}min")
+                log(
+                    f"  进度 {n}/{total}，字段变化 {n_changed}，评论增长 {n_cmt}，"
+                    f"失败 {n_fail}，ETA {eta / 60:.0f}min"
+                )
             # 每帖提交：单次写锁仅毫秒级，网络等待在事务外，避免与每小时 update 锁冲突
             if not args.dry_run:
                 conn.commit()
@@ -173,6 +179,7 @@ def main():
     if args.rebuild and not args.dry_run:
         log("重建看板...")
         import subprocess
+
         subprocess.run([sys.executable, "-m", "wpy", "build"], check=False)
         log("看板重建完成")
 

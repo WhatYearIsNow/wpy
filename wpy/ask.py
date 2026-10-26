@@ -8,6 +8,7 @@
     - wpy 数据库 (data/sitewide.db)
     - 天津大学 AI API 密钥 (.tju_key 文件)
 """
+
 from __future__ import annotations
 
 import json
@@ -33,11 +34,15 @@ ALIASES = {
     "设建": "设计与建造",
 }
 
-STOPWORDS = set(("的 了 吗 呢 啊 哦 吧 是 在 有 哪些 什么 怎么 怎样 如何 推荐 求 大家 "
-                 "我 你 他 她 这 那 和 与 及 或 一个 一些 可以 能不能 有没有 请问 一下 "
-                 "知道 告诉 说说 聊聊 哪 多少 几 吧 呀 哈 嘛 嗯 有哪些 是什么 怎么办 "
-                 "一下呢 想 问问 请教 各位 同学 现在 目前 请问一下 有没有人 "
-                 "课程 课 相关 内容 东西 问题 情况 方面 时候 地方 东西 这个 那个 我们 你们").split())
+STOPWORDS = set(
+    (
+        "的 了 吗 呢 啊 哦 吧 是 在 有 哪些 什么 怎么 怎样 如何 推荐 求 大家 "
+        "我 你 他 她 这 那 和 与 及 或 一个 一些 可以 能不能 有没有 请问 一下 "
+        "知道 告诉 说说 聊聊 哪 多少 几 吧 呀 哈 嘛 嗯 有哪些 是什么 怎么办 "
+        "一下呢 想 问问 请教 各位 同学 现在 目前 请问一下 有没有人 "
+        "课程 课 相关 内容 东西 问题 情况 方面 时候 地方 东西 这个 那个 我们 你们"
+    ).split()
+)
 
 
 def extract_keywords(q: str) -> tuple[str, list[str]]:
@@ -62,7 +67,7 @@ def extract_keywords(q: str) -> tuple[str, list[str]]:
     for r in runs:
         if r != core:
             for i in range(len(r) - 1):
-                bigrams.add(r[i:i+2])
+                bigrams.add(r[i : i + 2])
     bigrams = {b for b in bigrams if len(b) >= 2 and b not in STOPWORDS and b != core}
     return core, list(bigrams)
 
@@ -75,7 +80,9 @@ def retrieve(core: str, bigrams: list[str]) -> list:
         rows = cur.execute(
             """SELECT id, 标题, 正文, 标签, 评论数, 点赞数, 发布时间
                FROM posts WHERE 正文已补=1
-               ORDER BY 评论数 DESC LIMIT ?""", [TOP_N]).fetchall()
+               ORDER BY 评论数 DESC LIMIT ?""",
+            [TOP_N],
+        ).fetchall()
         conn.close()
         return rows
     # 加权打分：标题权重最高、标签次之、正文最低；核心短语再加权
@@ -86,16 +93,17 @@ def retrieve(core: str, bigrams: list[str]) -> list:
         score_terms.append(
             f"(CASE WHEN 标题 LIKE ? THEN {wt} ELSE 0 END) + "
             f"(CASE WHEN 标签 LIKE ? THEN {wtag} ELSE 0 END) + "
-            f"(CASE WHEN 正文 LIKE ? THEN {wbody} ELSE 0 END)")
+            f"(CASE WHEN 正文 LIKE ? THEN {wbody} ELSE 0 END)"
+        )
         score_params += [f"%{kw}%", f"%{kw}%", f"%{kw}%"]
         where_terms.append("(标题 LIKE ? OR 正文 LIKE ? OR 标签 LIKE ?)")
         where_params += [f"%{kw}%"] * 3
     sql = f"""
       SELECT id, 标题, 正文, 标签, 评论数, 点赞数, 发布时间,
-             ({' + '.join(score_terms)}) AS score
+             ({" + ".join(score_terms)}) AS score
       FROM posts
       WHERE 正文已补=1
-        AND ({' OR '.join(where_terms)})
+        AND ({" OR ".join(where_terms)})
       ORDER BY score DESC, 评论数 DESC, 发布时间 DESC
       LIMIT ?
     """
@@ -112,7 +120,8 @@ def fetch_floors(pid: int, limit: int = 12) -> list:
         """SELECT 昵称, 内容, 点赞数 FROM floors
            WHERE 帖子ID=? AND length(内容)>0
            ORDER BY 父楼ID ASC, 点赞数 DESC, id ASC LIMIT ?""",
-        (pid, limit)).fetchall()
+        (pid, limit),
+    ).fetchall()
     conn.close()
     return rows
 
@@ -123,7 +132,9 @@ def ask_llm(question: str, posts: list) -> str:
         body = (p["正文"] or "").strip()
         if len(body) > 900:
             body = body[:900] + "……"
-        lines.append(f"[原帖{i}] MP{p['id']}｜标题：{p['标题']}｜标签：{p['标签'] or ''}｜时间：{p['发布时间'][:10]}\n楼主：{body}\n")
+        lines.append(
+            f"[原帖{i}] MP{p['id']}｜标题：{p['标题']}｜标签：{p['标签'] or ''}｜时间：{p['发布时间'][:10]}\n楼主：{body}\n"
+        )
         floors = fetch_floors(p["id"])
         for f in floors:
             fc = (f["内容"] or "").strip().replace("\n", " ")
@@ -148,7 +159,11 @@ def ask_llm(question: str, posts: list) -> str:
 【论坛原帖】
 {context}
 """
-    payload = {"model": MODEL, "messages": [{"role": "user", "content": prompt}], "max_tokens": 1500}
+    payload = {
+        "model": MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 1500,
+    }
     try:
         key = load_key()
     except FileNotFoundError:
@@ -197,7 +212,7 @@ def main() -> None:
     """智能问答入口。"""
     q = " ".join(sys.argv[1:]).strip()
     if not q:
-        print("用法: python -m wpy ask \"你的问题\"")
+        print('用法: python -m wpy ask "你的问题"')
         sys.exit(1)
     core, bigrams = extract_keywords(q)
     posts = retrieve(core, bigrams)

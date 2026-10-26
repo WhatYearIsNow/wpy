@@ -10,6 +10,7 @@
 - 无 NameError / 缺失 import
 - DB 写入边界正常（临时库，不碰 data/sitewide.db）
 """
+
 from __future__ import annotations
 
 import os
@@ -35,6 +36,7 @@ os.environ.setdefault("PYTHONUTF8", "1")
 
 # 测试自身保证 UTF-8，避免被宿主 PowerShell 的 cp1252 控制台编码干扰。
 from wpy.cli import _ensure_utf8_stdio
+
 _ensure_utf8_stdio()
 
 
@@ -88,8 +90,7 @@ def install_mocks():
     import wpy.crawler.export_ops as export_ops
     import wpy.http as http
 
-    state = {"list_page": 0, "essence_page": 0, "user_page": 0, "fav_page": 0,
-             "comment_pages": {}}
+    state = {"list_page": 0, "essence_page": 0, "user_page": 0, "fav_page": 0, "comment_pages": {}}
 
     def fake_api_get(token, path, params=None, allow_null_data=False):
         params = params or {}
@@ -144,8 +145,7 @@ def install_mocks():
     def fake_with_retry(fn, what, fuse, interval=0.0):
         return fn()
 
-    def fake_get_bytes(url, headers=None, timeout=30, throttle=False,
-                       max_bytes=None):
+    def fake_get_bytes(url, headers=None, timeout=30, throttle=False, max_bytes=None):
         return b"offline-image-bytes"
 
     for mod in (list_mod, essence, body, comment, shared, pipeline, export_ops):
@@ -198,7 +198,12 @@ def main():
     # 0) 兼容 import
     try:
         from wpy.crawler import (  # noqa
-            api_get, do_body, do_comment, do_image, do_list, open_db,
+            api_get,
+            do_body,
+            do_comment,
+            do_image,
+            do_list,
+            open_db,
             run_pipeline,
         )
         from wpy.crawler.body import do_body as b2
@@ -207,6 +212,7 @@ def main():
         from wpy.crawler.image import do_image as i2
         from wpy.crawler.list import do_list as l2
         from wpy.crawler.pipeline import run_pipeline as p2
+
         if not check("compat import stages", b2 is do_body and l2 is do_list):
             fails.append("compat import")
     except Exception as e:
@@ -219,6 +225,7 @@ def main():
     import wpy.crawler.essence as essence_mod
     import wpy.crawler.list as list_mod
     import wpy.crawler.shared as shared_mod
+
     for mod, need in (
         (body_mod, ("open_db", "threading")),
         (comment_mod, ("open_db", "threading")),
@@ -236,6 +243,7 @@ def main():
     install_mocks()
 
     from wpy import config
+
     isolated = all(
         os.path.commonpath((_TMP, os.path.abspath(getattr(config, name)))) == _TMP
         for name in ("DATA_DIR", "BUILD_DIR", "LOG_DIR", "PAGES_DIR", "DB_PATH")
@@ -244,10 +252,16 @@ def main():
         return 1
 
     conn = open_db()
-    tables = {r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'")}
-    need = {"posts", "floors", "official_replies", "images",
-            "scrape_progress", "pagination_events", "essence_ids"}
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    need = {
+        "posts",
+        "floors",
+        "official_replies",
+        "images",
+        "scrape_progress",
+        "pagination_events",
+        "essence_ids",
+    }
     ok_tables = need.issubset(tables)
     check("schema tables", ok_tables, str(sorted(need - tables)))
     if not ok_tables:
@@ -285,10 +299,10 @@ def main():
     # my posts
     try:
         from wpy.crawler.essence import crawl_my_posts
+
         crawl_my_posts("tok", args(), "是我的帖子", "posts/user", "我的帖子")
         conn = open_db()
-        m = conn.execute(
-            'SELECT COUNT(*) FROM posts WHERE "是我的帖子"=1').fetchone()[0]
+        m = conn.execute('SELECT COUNT(*) FROM posts WHERE "是我的帖子"=1').fetchone()[0]
         conn.close()
         check("crawl_my_posts", m >= 1, "marked=%s" % m)
     except Exception as e:
@@ -300,18 +314,18 @@ def main():
         conn = open_db()
         conn.execute('UPDATE posts SET "正文已补"=0')
         conn.commit()
-        n0 = conn.execute(
-            'SELECT COUNT(*) FROM posts WHERE "正文已补"=0').fetchone()[0]
+        n0 = conn.execute('SELECT COUNT(*) FROM posts WHERE "正文已补"=0').fetchone()[0]
         conn.close()
         do_body("tok", args(concurrency=2, limit=10))
         conn = open_db()
-        n1 = conn.execute(
-            'SELECT COUNT(*) FROM posts WHERE "正文已补"=1').fetchone()[0]
-        sample = conn.execute(
-            'SELECT "正文" FROM posts WHERE id=1001').fetchone()
+        n1 = conn.execute('SELECT COUNT(*) FROM posts WHERE "正文已补"=1').fetchone()[0]
+        sample = conn.execute('SELECT "正文" FROM posts WHERE id=1001').fetchone()
         conn.close()
-        check("do_body", n1 >= 1 and sample and sample[0].startswith("full-body-"),
-              "pending=%s body_ok=%s sample=%s" % (n0, n1, sample))
+        check(
+            "do_body",
+            n1 >= 1 and sample and sample[0].startswith("full-body-"),
+            "pending=%s body_ok=%s sample=%s" % (n0, n1, sample),
+        )
         if n1 < 1:
             fails.append("body")
     except Exception as e:
@@ -327,8 +341,7 @@ def main():
         do_comment("tok", args(concurrency=2, page_size=20, limit=10, no_repair=True))
         conn = open_db()
         nf = conn.execute("SELECT COUNT(*) FROM floors").fetchone()[0]
-        nc = conn.execute(
-            'SELECT COUNT(*) FROM posts WHERE "评论已抓"=1').fetchone()[0]
+        nc = conn.execute('SELECT COUNT(*) FROM posts WHERE "评论已抓"=1').fetchone()[0]
         conn.close()
         check("do_comment", nf >= 1 and nc >= 1, "floors=%s done_posts=%s" % (nf, nc))
         if nf < 1:
@@ -340,13 +353,13 @@ def main():
     # do_image
     try:
         from wpy.crawler.image import collect_images
+
         conn = open_db()
         refs = collect_images(conn)
         conn.close()
         do_image("tok", args(concurrency=1, limit=20))
         conn = open_db()
-        ni = conn.execute(
-            'SELECT COUNT(*) FROM images WHERE "已有本地"=1').fetchone()[0]
+        ni = conn.execute('SELECT COUNT(*) FROM images WHERE "已有本地"=1').fetchone()[0]
         conn.close()
         check("do_image", ni >= 1, "refs=%s saved=%s" % (len(refs), ni))
         if ni < 1:
@@ -358,12 +371,13 @@ def main():
     # pagination event path（list 重复页）
     try:
         from wpy.crawler.list import do_list as dl
+
         # 再抓一轮 list：mock 状态已推进，可能空页；强制写入一条事件验证函数名
         conn = open_db()
         from wpy.db import record_pagination_event
+
         record_pagination_event(conn, 2, 2, "overlap", "offline-smoke")
-        n = conn.execute(
-            "SELECT COUNT(*) FROM pagination_events").fetchone()[0]
+        n = conn.execute("SELECT COUNT(*) FROM pagination_events").fetchone()[0]
         conn.close()
         check("pagination_events write", n >= 1, "n=%s" % n)
         # 源码检查：list 模块不得再引用未定义的 _record
@@ -382,8 +396,7 @@ def main():
         install_mocks()
         run_pipeline(
             "tok",
-            args(concurrency=1, limit=5, page_size=20, no_confirm=True,
-                 max_posts=0),
+            args(concurrency=1, limit=5, page_size=20, no_confirm=True, max_posts=0),
             mode="partial",
             type_names={2: "青年湖底"},
         )
@@ -391,8 +404,7 @@ def main():
         s_posts = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
         conn.close()
         html_exists = os.path.exists(config.HTML_PATH)
-        check("run_pipeline", s_posts >= 1, "posts=%s html=%s" % (
-            s_posts, html_exists))
+        check("run_pipeline", s_posts >= 1, "posts=%s html=%s" % (s_posts, html_exists))
         if s_posts < 1:
             fails.append("pipeline")
     except Exception as e:

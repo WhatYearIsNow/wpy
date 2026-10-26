@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """正文与图片链接补全阶段。"""
+
 from __future__ import annotations
 
 import threading
@@ -9,15 +10,15 @@ from ..http import BadRequest, FatalError, Fuse, FuseTripped, api_get, pace, wit
 from ..runlog import Ticker, log
 from .shared import build_post_filter, run_workers
 
+
 def do_body(token, args):
     conn = open_db()
     fuse = Fuse()
     where, params = build_post_filter(args, "body")
     # MP号 = posts.id；升序配队列尾部 pop，实际从 MP号 最大（最新）的帖子开始补
-    rows = conn.execute('SELECT id FROM posts WHERE %s ORDER BY id' % where,
-                        params).fetchall()
+    rows = conn.execute("SELECT id FROM posts WHERE %s ORDER BY id" % where, params).fetchall()
     if args.limit:
-        rows = rows[:args.limit]
+        rows = rows[: args.limit]
     log("=== 阶段二：补全正文（待处理 %d 条，并发 %d）===" % (len(rows), args.concurrency))
     if not rows:
         log("没有待补全的帖子。")
@@ -40,21 +41,27 @@ def do_body(token, args):
                     return
                 pid = queue.pop()
             try:
-                fuse.check()   # 熔断后立刻退出，不再对该帖做请求
-                data = with_retry(lambda: api_get(token, "post", {"id": pid}),
-                                  "帖子%s详情" % pid, fuse)
+                fuse.check()  # 熔断后立刻退出，不再对该帖做请求
+                data = with_retry(
+                    lambda: api_get(token, "post", {"id": pid}), "帖子%s详情" % pid, fuse
+                )
                 post = data.get("post") or {}
                 imgs = post.get("image_urls") or []
                 with lock:
                     update_post_body(
-                        conn, pid, post.get("content") or "", imgs, len(imgs),
-                        uid=post.get("uid"), nickname=post.get("nickname") or "")
+                        conn,
+                        pid,
+                        post.get("content") or "",
+                        imgs,
+                        len(imgs),
+                        uid=post.get("uid"),
+                        nickname=post.get("nickname") or "",
+                    )
                     counter["done"] += 1
                     n = counter["done"]
                     ticker.bump()
                 if n == 1 or n % 25 == 0:
-                    log("  已补正文 %d/%d 条（失败 %d）"
-                        % (n, len(rows), counter["fail"]))
+                    log("  已补正文 %d/%d 条（失败 %d）" % (n, len(rows), counter["fail"]))
             except FuseTripped:
                 return
             except FatalError:
@@ -88,6 +95,7 @@ def do_body(token, args):
         log("阶段二中止：%s" % counter["fatal"])
         log("这是请求参数类错误，未处理的帖子仍标记为未抓，修好后直接重跑即可。")
         raise SystemExit(2)
-    log("阶段二结束：成功 %d 条，失败 %d 条（失败的标记为 -1，不再重试）"
-        % (counter["done"], counter["fail"]))
-
+    log(
+        "阶段二结束：成功 %d 条，失败 %d 条（失败的标记为 -1，不再重试）"
+        % (counter["done"], counter["fail"])
+    )

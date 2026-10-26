@@ -4,6 +4,7 @@
 用法（在 wpy-sitewide 目录）：
     python tools/test_serve_utf8.py
 """
+
 from __future__ import annotations
 
 import os
@@ -49,8 +50,7 @@ def main():
     # 中文横幅：旧逻辑在 cp1252 下会 UnicodeEncodeError
     th = threading.Thread(
         target=serve,
-        kwargs={"host": "127.0.0.1", "port": 8788,
-                "open_browser": False, "token": ""},
+        kwargs={"host": "127.0.0.1", "port": 8788, "open_browser": False, "token": ""},
         daemon=True,
     )
     th.start()

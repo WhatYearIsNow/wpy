@@ -1,4 +1,5 @@
 """单账号消息轮询及持久化发件箱；与看板会话、抓取数据库相互独立。"""
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -39,8 +40,9 @@ class RateLimited(NotificationError):
 
 
 class ForumClient:
-    def __init__(self, token_factory, *, request=request_json, sleep=time.sleep,
-                 max_pages=MAX_PAGES):
+    def __init__(
+        self, token_factory, *, request=request_json, sleep=time.sleep, max_pages=MAX_PAGES
+    ):
         self.token_factory = token_factory
         self.request = request
         self.sleep = sleep
@@ -63,8 +65,9 @@ class ForumClient:
                 raise AuthenticationError("论坛登录失败，请检查个人账号和 API 登录配置") from None
         url = LAKE_API + path + "?" + urlencode(params)
         try:
-            response = self.request(url, token=self.token, timeout=30, throttle=False,
-                                    max_bytes=2 * 1024 * 1024)
+            response = self.request(
+                url, token=self.token, timeout=30, throttle=False, max_bytes=2 * 1024 * 1024
+            )
         except Throttled as error:
             raise RateLimited(getattr(error, "retry_after", 0) or 900) from None
         except HTTPError as error:
@@ -103,8 +106,11 @@ class ForumClient:
         posts, floors = {}, {}
         for event in events:
             post_id = event["post_id"]
-            if (not event.get("post_content") or not event.get("title")
-                    or event.get("post_likes") is None):
+            if (
+                not event.get("post_content")
+                or not event.get("title")
+                or event.get("post_likes") is None
+            ):
                 if post_id not in posts:
                     self.sleep(1)
                     try:
@@ -156,8 +162,9 @@ class ForumClient:
                 reached_cursor = False
                 if incremental:
                     ids = [event["target_id"] for event in events]
-                    if (any(a <= b for a, b in zip(ids, ids[1:]))
-                            or (ids and previous_floor_id is not None and ids[0] >= previous_floor_id)):
+                    if any(a <= b for a, b in zip(ids, ids[1:])) or (
+                        ids and previous_floor_id is not None and ids[0] >= previous_floor_id
+                    ):
                         raise NotificationError("评论消息顺序发生变化，本轮未更新消息基线")
                     if ids:
                         previous_floor_id = ids[-1]
@@ -203,33 +210,48 @@ def normalize(source, row):
             raise ValueError("unknown message type")
         post = row.get("post") or {}
         floor = row.get("floor") or {}
-        event = {"post_id": _number(post.get("id") or floor.get("post_id"), positive=True),
-                 "title": _text(post.get("title"), 500),
-                 "post_content": _text(post.get("content"), 8000),
-                 "post_likes": _number(post["like_count"]) if post.get("like_count") is not None else None}
+        event = {
+            "post_id": _number(post.get("id") or floor.get("post_id"), positive=True),
+            "title": _text(post.get("title"), 500),
+            "post_content": _text(post.get("content"), 8000),
+            "post_likes": _number(post["like_count"])
+            if post.get("like_count") is not None
+            else None,
+        }
         if source == "likes":
             target = post if kind_type == 0 else floor
-            event.update(kind="post_like" if kind_type == 0 else "floor_like",
-                         target_id=_number(target["id"], positive=True),
-                         likes=_number(target["like_count"]),
-                         content=_text(target.get("content"), 4000) if kind_type == 1 else "")
+            event.update(
+                kind="post_like" if kind_type == 0 else "floor_like",
+                target_id=_number(target["id"], positive=True),
+                likes=_number(target["like_count"]),
+                content=_text(target.get("content"), 4000) if kind_type == 1 else "",
+            )
             if kind_type == 1:
-                event.update(my_comment=event["content"], my_comment_id=event["target_id"],
-                             my_comment_likes=event["likes"])
+                event.update(
+                    my_comment=event["content"],
+                    my_comment_id=event["target_id"],
+                    my_comment_likes=event["likes"],
+                )
         else:
             original = row.get("to_floor") or {}
-            event.update(kind="post_comment" if kind_type == 0 else "comment_reply",
-                         target_id=_number(floor["id"], positive=True), likes=0,
-                         author=_text(floor.get("nickname"), 80),
-                         time=_text(floor.get("created_at"), 80),
-                         content=_text(floor.get("content"), 4000) or
-                         ("[图片评论]" if floor.get("image_url") else "[内容已不可用]"),
-                         original=_text(original.get("content"), 4000))
+            event.update(
+                kind="post_comment" if kind_type == 0 else "comment_reply",
+                target_id=_number(floor["id"], positive=True),
+                likes=0,
+                author=_text(floor.get("nickname"), 80),
+                time=_text(floor.get("created_at"), 80),
+                content=_text(floor.get("content"), 4000)
+                or ("[图片评论]" if floor.get("image_url") else "[内容已不可用]"),
+                original=_text(original.get("content"), 4000),
+            )
             if kind_type == 1:
-                event.update(my_comment=event["original"],
-                             my_comment_id=_number(original.get("id", 0)),
-                             my_comment_likes=_number(original["like_count"])
-                             if original.get("like_count") is not None else None)
+                event.update(
+                    my_comment=event["original"],
+                    my_comment_id=_number(original.get("id", 0)),
+                    my_comment_likes=_number(original["like_count"])
+                    if original.get("like_count") is not None
+                    else None,
+                )
         return event
     except (KeyError, TypeError, ValueError, AttributeError):
         raise NotificationError("消息字段异常，本轮未更新消息基线") from None
@@ -247,12 +269,14 @@ def worker_lock(directory):
         try:
             if os.name == "nt":
                 import msvcrt
+
                 if os.fstat(fd).st_size == 0:
                     os.write(fd, b"0")
                 os.lseek(fd, 0, os.SEEK_SET)
                 msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
             else:
                 import fcntl
+
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             raise NotificationError("已有通知任务使用此状态目录，请勿重复启动") from None
@@ -287,8 +311,11 @@ class NotificationStore:
                 row = self.db.execute("SELECT value FROM meta WHERE key='key'").fetchone()
                 key = row[0] if row else secrets.token_hex(32)
                 self.db.execute("INSERT OR IGNORE INTO meta VALUES ('key', ?)", (key,))
-                identity = hmac.new(bytes.fromhex(key), json.dumps(
-                    [account.strip(), recipient], ensure_ascii=False).encode(), hashlib.sha256).hexdigest()
+                identity = hmac.new(
+                    bytes.fromhex(key),
+                    json.dumps([account.strip(), recipient], ensure_ascii=False).encode(),
+                    hashlib.sha256,
+                ).hexdigest()
                 row = self.db.execute("SELECT value FROM meta WHERE key='identity'").fetchone()
                 if row and not hmac.compare_digest(row[0], identity):
                     raise NotificationError("此通知状态属于另一账号或收件人，请使用独立状态目录")
@@ -302,8 +329,9 @@ class NotificationStore:
 
     def scan_options(self):
         initialized = bool(self.db.execute("SELECT 1 FROM meta WHERE key='initialized'").fetchone())
-        cursor = self.db.execute("SELECT MAX(target_id) FROM seen "
-                                 "WHERE kind IN ('post_comment','comment_reply')").fetchone()[0]
+        cursor = self.db.execute(
+            "SELECT MAX(target_id) FROM seen WHERE kind IN ('post_comment','comment_reply')"
+        ).fetchone()[0]
         return {"initial": not initialized, "floor_cursor": (cursor or 0) if initialized else None}
 
     def ingest(self, events, base_url=""):
@@ -313,27 +341,38 @@ class NotificationStore:
             initialized = self.db.execute("SELECT 1 FROM meta WHERE key='initialized'").fetchone()
             changes = []
             for event in events:
-                row = self.db.execute("SELECT likes FROM seen WHERE kind=? AND target_id=?",
-                                      (event["kind"], event["target_id"])).fetchone()
+                row = self.db.execute(
+                    "SELECT likes FROM seen WHERE kind=? AND target_id=?",
+                    (event["kind"], event["target_id"]),
+                ).fetchone()
                 liked = event["kind"] in ("post_like", "floor_like")
                 increase = max(0, event["likes"] - row[0]) if liked and row else None
-                if initialized and ((liked and (increase or (row is None and event["likes"])))
-                                    or (not liked and row is None)):
+                if initialized and (
+                    (liked and (increase or (row is None and event["likes"])))
+                    or (not liked and row is None)
+                ):
                     changes.append(dict(event, increase=increase))
-                self.db.execute("INSERT INTO seen VALUES (?, ?, ?) ON CONFLICT(kind, target_id) "
-                                "DO UPDATE SET likes=excluded.likes",
-                                (event["kind"], event["target_id"], event["likes"]))
-            pending = self.db.execute("SELECT count(*) FROM outbox WHERE sent IS NULL").fetchone()[0]
+                self.db.execute(
+                    "INSERT INTO seen VALUES (?, ?, ?) ON CONFLICT(kind, target_id) "
+                    "DO UPDATE SET likes=excluded.likes",
+                    (event["kind"], event["target_id"], event["likes"]),
+                )
+            pending = self.db.execute("SELECT count(*) FROM outbox WHERE sent IS NULL").fetchone()[
+                0
+            ]
             if pending + bool(changes) > 1000:
                 raise NotificationError("待发邮件积压过多，暂停更新消息基线")
             if changes:
                 subject, text, body = render_digest(changes, base_url)
                 key = uuid.uuid4().hex
-                self.db.execute("INSERT INTO outbox (id,subject,text,html,message_id,due) VALUES (?,?,?,?,?,?)",
-                                (key, subject, text, body, f"<{key}@wpy.local>", self.now()))
+                self.db.execute(
+                    "INSERT INTO outbox (id,subject,text,html,message_id,due) VALUES (?,?,?,?,?,?)",
+                    (key, subject, text, body, f"<{key}@wpy.local>", self.now()),
+                )
             self.db.execute("INSERT OR IGNORE INTO meta VALUES ('initialized', '1')")
-            self.db.execute("DELETE FROM outbox WHERE sent IS NOT NULL AND sent < ?",
-                            (self.now() - 30 * 86400,))
+            self.db.execute(
+                "DELETE FROM outbox WHERE sent IS NOT NULL AND sent < ?", (self.now() - 30 * 86400,)
+            )
             return {"baseline": not bool(initialized), "new": len(changes)}
 
     def new_events(self, events):
@@ -341,8 +380,10 @@ class NotificationStore:
             return []
         changes = []
         for event in events:
-            row = self.db.execute("SELECT likes FROM seen WHERE kind=? AND target_id=?",
-                                  (event["kind"], event["target_id"])).fetchone()
+            row = self.db.execute(
+                "SELECT likes FROM seen WHERE kind=? AND target_id=?",
+                (event["kind"], event["target_id"]),
+            ).fetchone()
             if event["kind"] in ("post_like", "floor_like"):
                 changed = event["likes"] > (row[0] if row else 0)
             else:
@@ -353,8 +394,10 @@ class NotificationStore:
 
     def deliver(self, sender, *, limit=10):
         sent = failed = 0
-        rows = self.db.execute("SELECT * FROM outbox WHERE sent IS NULL AND due <= ? "
-                               "ORDER BY due,id LIMIT ?", (self.now(), limit)).fetchall()
+        rows = self.db.execute(
+            "SELECT * FROM outbox WHERE sent IS NULL AND due <= ? ORDER BY due,id LIMIT ?",
+            (self.now(), limit),
+        ).fetchall()
         for row in rows:
             try:
                 result = sender(row["subject"], row["text"], row["html"], row["message_id"])
@@ -364,8 +407,10 @@ class NotificationStore:
                 attempts = row["attempts"] + 1
                 delay = min(3600, INTERVAL * 2 ** min(attempts - 1, 4))
                 with self.db:
-                    self.db.execute("UPDATE outbox SET attempts=?,due=? WHERE id=?",
-                                    (attempts, self.now() + delay, row["id"]))
+                    self.db.execute(
+                        "UPDATE outbox SET attempts=?,due=? WHERE id=?",
+                        (attempts, self.now() + delay, row["id"]),
+                    )
                 failed += 1
                 break  # SMTP 不通时，本轮不继续逐封重试。
             else:
@@ -384,6 +429,9 @@ def run_cycle(client, store, sender, base_url=""):
     result = store.ingest(snapshot, base_url)
     if not delivery["failed"]:
         extra = store.deliver(sender)
-        delivery = {"sent": delivery["sent"] + extra["sent"],
-                    "failed": extra["failed"], "pending": extra["pending"]}
+        delivery = {
+            "sent": delivery["sent"] + extra["sent"],
+            "failed": extra["failed"],
+            "pending": extra["pending"],
+        }
     return dict(result, **delivery)

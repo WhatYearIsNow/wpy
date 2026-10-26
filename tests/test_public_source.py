@@ -1,4 +1,5 @@
 """源码扫描须报告位置而不泄露值，且不读取私有文件。"""
+
 import importlib.util
 from pathlib import Path
 import subprocess
@@ -12,8 +13,11 @@ _spec.loader.exec_module(checker)
 
 def test_secret_literals_and_environment_fallback_are_detected():
     value = "a1B2c3D4" * 4
-    for text in (f'APP_SECRET = "{value}"', f'TOKEN = "{value}"',
-                 f'os.environ.get("WPY_APP_SECRET", "{value}")'):
+    for text in (
+        f'APP_SECRET = "{value}"',
+        f'TOKEN = "{value}"',
+        f'os.environ.get("WPY_APP_SECRET", "{value}")',
+    ):
         findings = checker.scan_text(text)
         assert findings
         assert all(line == 1 and value not in category for line, category in findings)
@@ -84,7 +88,8 @@ def test_local_pages_are_rejected_without_reading(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, "read_text", reject_read)
     assert checker.scan_paths(tmp_path, [Path("pages/local.json")]) == [
-        ("pages/local.json", 0, "private runtime file or directory")]
+        ("pages/local.json", 0, "private runtime file or directory")
+    ]
 
 
 def test_page_templates_must_be_empty(tmp_path):
@@ -94,15 +99,29 @@ def test_page_templates_must_be_empty(tmp_path):
     assert checker.scan_paths(tmp_path, [Path("pages/content.example.json")]) == []
     path.write_text('{"author": "nonempty content"}')
     assert checker.scan_paths(tmp_path, [Path("pages/content.example.json")]) == [
-        ("pages/content.example.json", 0, "page example must be empty")]
+        ("pages/content.example.json", 0, "page example must be empty")
+    ]
 
 
 def test_history_checks_commit_identity_without_printing_address(tmp_path):
     address = "person" + "@" + "mail.invalid-domain.com"
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=Test Contributor",
-                    "-c", "user.email=" + address, "commit", "--allow-empty", "-qm", "fixture"],
-                   check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "user.name=Test Contributor",
+            "-c",
+            "user.email=" + address,
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "fixture",
+        ],
+        check=True,
+    )
     findings = checker.scan_history(tmp_path)
     assert any(category == "personal email" for _, _, category in findings)
     assert address not in repr(findings)

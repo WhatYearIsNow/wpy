@@ -4,6 +4,7 @@
 用法（在 wpy-sitewide 目录）：
     python tools/smoke_test.py
 """
+
 from __future__ import annotations
 
 import json
@@ -13,7 +14,9 @@ import time
 import urllib.error
 import urllib.request
 
-ROOT = __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+ROOT = __import__("os").path.dirname(
+    __import__("os").path.dirname(__import__("os").path.abspath(__file__))
+)
 sys.path.insert(0, ROOT)
 
 
@@ -39,6 +42,7 @@ def main() -> int:
     # 1) imports
     try:
         from wpy import board_api, config, server, ui, crawler, auth  # noqa
+
         check("import package", True)
     except Exception as e:
         check("import package", False, str(e))
@@ -60,8 +64,11 @@ def main() -> int:
     check("init_info", info.get("total", 0) > 1000, "total=%s" % info.get("total"))
     t0 = time.time()
     posts = b.posts({"size": 5, "page": 1})
-    check("posts page", posts.get("total", 0) > 0 and posts.get("items"),
-          "ms=%d total=%s" % (int((time.time() - t0) * 1000), posts.get("total")))
+    check(
+        "posts page",
+        posts.get("total", 0) > 0 and posts.get("items"),
+        "ms=%d total=%s" % (int((time.time() - t0) * 1000), posts.get("total")),
+    )
     # MP号 / MPID 定点搜索：拿首页帖子的 id / uid 回搜，应能精确命中
     p0 = next((i for i in posts["items"] if i.get("uid")), None)
     if p0 is None:
@@ -71,20 +78,25 @@ def main() -> int:
     if p0:
         t0 = time.time()
         s = b.posts({"q": "#MP%d" % p0["id"], "size": 5, "page": 1})
-        check("search MP id (#MP<id>)",
-              s.get("total", 0) >= 1
-              and any(i["id"] == p0["id"] for i in s["items"]),
-              "ms=%d total=%s" % (int((time.time() - t0) * 1000), s.get("total")))
+        check(
+            "search MP id (#MP<id>)",
+            s.get("total", 0) >= 1 and any(i["id"] == p0["id"] for i in s["items"]),
+            "ms=%d total=%s" % (int((time.time() - t0) * 1000), s.get("total")),
+        )
         t0 = time.time()
         s = b.posts({"q": "MPID%d" % p0["uid"], "size": 5, "page": 1})
-        check("search MPID<uid>",
-              s.get("total", 0) >= 1
-              and all(i["uid"] == p0["uid"] for i in s["items"]),
-              "ms=%d total=%s" % (int((time.time() - t0) * 1000), s.get("total")))
+        check(
+            "search MPID<uid>",
+            s.get("total", 0) >= 1 and all(i["uid"] == p0["uid"] for i in s["items"]),
+            "ms=%d total=%s" % (int((time.time() - t0) * 1000), s.get("total")),
+        )
     t0 = time.time()
     u = b.user(sample_uid)
-    check("sample author", time.time() - t0 < 1.0 and u.get("uid") == sample_uid,
-          "ms=%d posts=%s" % (int((time.time() - t0) * 1000), u.get("posts")))
+    check(
+        "sample author",
+        time.time() - t0 < 1.0 and u.get("uid") == sample_uid,
+        "ms=%d posts=%s" % (int((time.time() - t0) * 1000), u.get("posts")),
+    )
     # list images should be thumb paths
     imgs = posts["items"][0].get("imgs") or []
     if imgs:
@@ -95,12 +107,14 @@ def main() -> int:
 
     # concurrent user+posts (thread safety)
     errs = []
+
     def hit():
         try:
             b.user(sample_uid)
             b.posts({"size": 3, "page": 1})
         except Exception as e:
             errs.append(str(e))
+
     ths = [threading.Thread(target=hit) for _ in range(8)]
     for th in ths:
         th.start()
@@ -110,11 +124,11 @@ def main() -> int:
 
     # 4) HTTP serve
     from wpy.server import serve
+
     port = 8777
     th = threading.Thread(
         target=serve,
-        kwargs={"host": "127.0.0.1", "port": port, "open_browser": False,
-                "token": "smoke"},
+        kwargs={"host": "127.0.0.1", "port": port, "open_browser": False, "token": "smoke"},
         daemon=True,
     )
     th.start()
@@ -138,8 +152,11 @@ def main() -> int:
         # detail with floor paging if possible
         pid = body_posts_id = posts["items"][0]["id"]
         st, d = _json(base + "/api/post?id=%s&flim=5&token=smoke" % pid)
-        check("api post detail", st == 200 and "floorsTotal" in d,
-              "floors=%s/%s" % (d.get("floorsLoaded"), d.get("floorsTotal")))
+        check(
+            "api post detail",
+            st == 200 and "floorsTotal" in d,
+            "floors=%s/%s" % (d.get("floorsLoaded"), d.get("floorsTotal")),
+        )
         # img thumb path format from a post if any
         # healthz no auth
         st, body = _json(base + "/healthz")

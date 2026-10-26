@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """wpy.board_api 中纯函数的单元测试。"""
+
 import pytest
 from wpy.board_api import _quote, _json_list
 
@@ -54,10 +55,10 @@ class TestJsonList:
     """测试 _json_list — JSON 数组解析与安全回退。"""
 
     def test_valid_array(self):
-        assert _json_list('[1, 2, 3]') == [1, 2, 3]
+        assert _json_list("[1, 2, 3]") == [1, 2, 3]
 
     def test_empty_array(self):
-        assert _json_list('[]') == []
+        assert _json_list("[]") == []
 
     def test_string_array(self):
         assert _json_list('["a", "b"]') == ["a", "b"]
@@ -81,4 +82,4 @@ class TestJsonList:
         assert _json_list('"hello"') == []
 
     def test_nested_array(self):
-        assert _json_list('[[1], [2]]') == [[1], [2]]
+        assert _json_list("[[1], [2]]") == [[1], [2]]

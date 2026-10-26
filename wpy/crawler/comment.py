@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """评论 / 楼中楼 / 官方回复阶段。"""
+
 from __future__ import annotations
 
 import threading
@@ -7,15 +8,28 @@ import urllib.parse
 
 from ..config import COMMENT_PAGE_SIZE, LAKE_API, REQUEST_INTERVAL
 from ..db import (
-    _int, iter_floors, mark_post_comment_status, official_row, open_db,
-    reset_incomplete_comments, save_floors, save_official_replies,
+    _int,
+    iter_floors,
+    mark_post_comment_status,
+    official_row,
+    open_db,
+    reset_incomplete_comments,
+    save_floors,
+    save_official_replies,
 )
 from ..http import (
-    BadRequest, FatalError, Fuse, FuseTripped, api_get, pace, request_json,
+    BadRequest,
+    FatalError,
+    Fuse,
+    FuseTripped,
+    api_get,
+    pace,
+    request_json,
     with_retry,
 )
 from ..runlog import Ticker, log
 from .shared import build_post_filter, run_workers
+
 
 def fetch_floors(token, post_id, page, page_size, order):
     """拉一页楼层。
@@ -27,10 +41,17 @@ def fetch_floors(token, post_id, page, page_size, order):
     ⚠ 列表接口的 `sub_floors` **只带前几条**，完整楼中楼看 `sub_floor_cnt`，
     缺的部分要再调 floor/replys（见 expand_sub_floors）。只信嵌套数组会漏评论。
     """
-    data = api_get(token, "floors", {
-        "post_id": post_id, "page": page, "page_size": page_size,
-        "order": int(order), "only_owner": 0,
-    })
+    data = api_get(
+        token,
+        "floors",
+        {
+            "post_id": post_id,
+            "page": page,
+            "page_size": page_size,
+            "order": int(order),
+            "only_owner": 0,
+        },
+    )
     return data.get("list") or [], data.get("total")
 
 
@@ -40,10 +61,17 @@ def fetch_floor_replies(token, floor_id, page, page_size=10):
     源码 feedback_service.getFloorReplyById：page 从 0 起，page_size=10，
     并带 pageBase=0。返回 data.list。
     """
-    data = api_get(token, "floor/replys", {
-        "floor_id": floor_id, "page": int(page), "page_size": int(page_size),
-        "pageBase": 0,
-    }, allow_null_data=True)
+    data = api_get(
+        token,
+        "floor/replys",
+        {
+            "floor_id": floor_id,
+            "page": int(page),
+            "page_size": int(page_size),
+            "pageBase": 0,
+        },
+        allow_null_data=True,
+    )
     if not isinstance(data, dict):
         return [], None
     return data.get("list") or [], data.get("total")
@@ -62,8 +90,7 @@ def _merge_floors_by_id(base, extra):
     return out
 
 
-def fetch_all_floor_replies(token, floor_id, expected, fuse, what_prefix,
-                            page_size=10):
+def fetch_all_floor_replies(token, floor_id, expected, fuse, what_prefix, page_size=10):
     """分页拉齐某一楼的全部楼中楼。expected 为 sub_floor_cnt（可为 0/未知）。"""
     all_replies, page = [], 0
     # 官方首屏 page=0；最多多翻 2 页兜底，避免 total 语义不清时空转
@@ -73,7 +100,9 @@ def fetch_all_floor_replies(token, floor_id, expected, fuse, what_prefix,
     while page < max_pages:
         lst, _total = with_retry(
             lambda p=page: fetch_floor_replies(token, floor_id, p, page_size),
-            "%s楼中楼第%d页" % (what_prefix, page), fuse)
+            "%s楼中楼第%d页" % (what_prefix, page),
+            fuse,
+        )
         if not lst:
             break
         all_replies = _merge_floors_by_id(all_replies, lst)
@@ -107,8 +136,8 @@ def expand_one_floor_subs(token, f, fuse, pid, page_size, depth):
         fid = _int(f.get("id"))
         if fid:
             full = fetch_all_floor_replies(
-                token, fid, declared, fuse,
-                "帖子%s楼%s" % (pid, fid), page_size=page_size)
+                token, fid, declared, fuse, "帖子%s楼%s" % (pid, fid), page_size=page_size
+            )
             embedded = _merge_floors_by_id(embedded, full)
             f["sub_floors"] = embedded
             # 数量仍以声明为准：服务端可能含已删/屏蔽层，宁可多对几页
@@ -125,24 +154,22 @@ def diagnose_comments(token, post_id):
     """
     log("=== 评论接口诊断：post_id=%s ===" % post_id)
     attempts = [
-        ("源码原样：only_owner=0(int), page_size=10",
-         {"post_id": post_id, "page": 1, "page_size": 10, "order": 1,
-          "only_owner": 0}),
-        ("only_owner=0, page_size=20",
-         {"post_id": post_id, "page": 1, "page_size": 20, "order": 1,
-          "only_owner": 0}),
-        ("only_owner='0'(字符串)",
-         {"post_id": post_id, "page": 1, "page_size": 10, "order": 1,
-          "only_owner": "0"}),
-        ("去掉 only_owner",
-         {"post_id": post_id, "page": 1, "page_size": 10, "order": 1}),
-        ("去掉 order 和 only_owner",
-         {"post_id": post_id, "page": 1, "page_size": 10}),
-        ("只留 post_id 和 page",
-         {"post_id": post_id, "page": 1}),
-        ("order=0",
-         {"post_id": post_id, "page": 1, "page_size": 10, "order": 0,
-          "only_owner": 0}),
+        (
+            "源码原样：only_owner=0(int), page_size=10",
+            {"post_id": post_id, "page": 1, "page_size": 10, "order": 1, "only_owner": 0},
+        ),
+        (
+            "only_owner=0, page_size=20",
+            {"post_id": post_id, "page": 1, "page_size": 20, "order": 1, "only_owner": 0},
+        ),
+        (
+            "only_owner='0'(字符串)",
+            {"post_id": post_id, "page": 1, "page_size": 10, "order": 1, "only_owner": "0"},
+        ),
+        ("去掉 only_owner", {"post_id": post_id, "page": 1, "page_size": 10, "order": 1}),
+        ("去掉 order 和 only_owner", {"post_id": post_id, "page": 1, "page_size": 10}),
+        ("只留 post_id 和 page", {"post_id": post_id, "page": 1}),
+        ("order=0", {"post_id": post_id, "page": 1, "page_size": 10, "order": 0, "only_owner": 0}),
     ]
     ok_found = None
     for label, params in attempts:
@@ -156,8 +183,7 @@ def diagnose_comments(token, post_id):
                 if ok_found is None:
                     ok_found = label
             else:
-                print("  失败 ✗  %-38s -> code=%s %s"
-                      % (label, code, str(r.get("msg"))[:40]))
+                print("  失败 ✗  %-38s -> code=%s %s" % (label, code, str(r.get("msg"))[:40]))
         except Exception as e:
             print("  异常 ✗  %-38s -> %s" % (label, str(e)[:50]))
         pace(REQUEST_INTERVAL)
@@ -172,8 +198,7 @@ def diagnose_comments(token, post_id):
 
 
 def fetch_official(token, post_id):
-    data = api_get(token, "post/replys", {"post_id": post_id},
-                   allow_null_data=True)
+    data = api_get(token, "post/replys", {"post_id": post_id}, allow_null_data=True)
     return (data or {}).get("list") or []
 
 
@@ -191,12 +216,14 @@ def do_comment(token, args):
     where, params = build_post_filter(args, "comment")
     # MP号 = posts.id；升序配队列尾部 pop，实际从 MP号 最大（最新）的帖子开始抓
     rows = conn.execute(
-        'SELECT id, "板块ID", "评论数" FROM posts WHERE %s '
-        'ORDER BY id' % where, params).fetchall()
+        'SELECT id, "板块ID", "评论数" FROM posts WHERE %s ORDER BY id' % where, params
+    ).fetchall()
     if args.limit:
-        rows = rows[:args.limit]
-    log("=== 阶段三：评论抓取（待处理 %d 帖，并发 %d，每页 %d 楼）===="
-        % (len(rows), args.concurrency, args.page_size))
+        rows = rows[: args.limit]
+    log(
+        "=== 阶段三：评论抓取（待处理 %d 帖，并发 %d，每页 %d 楼）===="
+        % (len(rows), args.concurrency, args.page_size)
+    )
     if not rows:
         log("没有待抓评论的帖子。")
         conn.close()
@@ -220,8 +247,7 @@ def do_comment(token, args):
             try:
                 # 熔断后立刻退出，不再对该帖做任何请求
                 fuse.check()
-                n_floors = crawl_one_post(
-                    conn, token, pid, args, fuse, lock, counter)
+                n_floors = crawl_one_post(conn, token, pid, args, fuse, lock, counter)
                 with lock:
                     mark_post_comment_status(conn, pid, 1)
                     counter["posts"] += 1
@@ -229,8 +255,10 @@ def do_comment(token, args):
                     ticker.bump()
                     n = counter["posts"]
                 if n == 1 or n % 10 == 0:
-                    log("  已抓评论 %d/%d 帖，累计 %d 楼（失败 %d）"
-                        % (n, len(rows), counter["floors"], counter["fail"]))
+                    log(
+                        "  已抓评论 %d/%d 帖，累计 %d 楼（失败 %d）"
+                        % (n, len(rows), counter["floors"], counter["fail"])
+                    )
             except FuseTripped:
                 return
             except FatalError:
@@ -263,8 +291,10 @@ def do_comment(token, args):
         log("这是请求参数类错误，所有帖子都会被标记为未抓，修好参数后直接重跑即可。")
         log("可运行 `python wpy_sitewide.py diagnose` 逐个试参数组合定位问题。")
         raise SystemExit(2)
-    log("阶段三结束：成功 %d 帖、共 %d 楼，失败 %d 帖（标记 -1，不再重试）"
-        % (counter["posts"], counter["floors"], counter["fail"]))
+    log(
+        "阶段三结束：成功 %d 帖、共 %d 楼，失败 %d 帖（标记 -1，不再重试）"
+        % (counter["posts"], counter["floors"], counter["fail"])
+    )
 
 
 def crawl_one_post(conn, token, pid, args, fuse, lock, counter):
@@ -282,7 +312,9 @@ def crawl_one_post(conn, token, pid, args, fuse, lock, counter):
     while True:
         floors, total = with_retry(
             lambda: fetch_floors(token, pid, page, args.page_size, args.order),
-            "帖子%s评论第%d页" % (pid, page), fuse)
+            "帖子%s评论第%d页" % (pid, page),
+            fuse,
+        )
         if not floors:
             break
 
@@ -300,8 +332,7 @@ def crawl_one_post(conn, token, pid, args, fuse, lock, counter):
     # 校务专区（type=1）帖另有官方回复，单独抓
     if args.official:
         try:
-            offs = with_retry(lambda: fetch_official(token, pid),
-                              "帖子%s官方回复" % pid, fuse)
+            offs = with_retry(lambda: fetch_official(token, pid), "帖子%s官方回复" % pid, fuse)
             if offs:
                 rows = [official_row(f, pid) for f in offs]
                 with lock:
@@ -312,4 +343,3 @@ def crawl_one_post(conn, token, pid, args, fuse, lock, counter):
             log("  帖子 %s 官方回复抓取失败（跳过）：%s" % (pid, str(e)[:90]))
 
     return n_total
-

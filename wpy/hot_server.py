@@ -6,6 +6,7 @@ API 请求（/api/*）反代到看板服务（8765），
 共享同一份数据库和构建产物，
 但监听独立端口，方便面板独立监控。
 """
+
 import os
 import socketserver
 import urllib.parse
@@ -18,8 +19,13 @@ import http.server
 import urllib.request
 
 from .config import (
-    ASSET_DIR, BOARD_TOKEN, DEFAULT_HOST, HOT_PATH,
-    IMG_DIR, PIC_API, DB_PATH,
+    ASSET_DIR,
+    BOARD_TOKEN,
+    DEFAULT_HOST,
+    HOT_PATH,
+    IMG_DIR,
+    PIC_API,
+    DB_PATH,
 )
 from .content_type import guess_type
 from . import ranking
@@ -36,7 +42,8 @@ _TRANSPARENT_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
     b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
     b"\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01"
-    b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
+    b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 
 def _img_lock(name):
@@ -44,7 +51,7 @@ def _img_lock(name):
         lk = _img_locks.get(name)
         if lk is None:
             if len(_img_locks) >= _IMG_LOCKS_MAX:
-                to_remove = list(_img_locks.keys())[:_IMG_LOCKS_MAX // 2]
+                to_remove = list(_img_locks.keys())[: _IMG_LOCKS_MAX // 2]
                 for k in to_remove:
                     del _img_locks[k]
             lk = threading.Lock()
@@ -64,7 +71,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             with open(path or self.hot_path, "rb") as f:
                 return f.read()
         except OSError:
-            return b'<h1>Hot file not found, run: python -m wpy build</h1>'
+            return b"<h1>Hot file not found, run: python -m wpy build</h1>"
 
     def _send(self, body, ctype, code=200, extra_headers=None):
         if isinstance(body, str):
@@ -106,19 +113,22 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
         try:
             board_name, result = ranking.query_ranking(
-                DB_PATH, board=board, dim=dim, window=window, limit=limit)
+                DB_PATH, board=board, dim=dim, window=window, limit=limit
+            )
         except ranking.RankingError as exc:
             return self._json({"error": str(exc)}, 400)
         except ValueError:
             return self._json({"error": "limit 必须是数字"}, 400)
 
-        return self._json({
-            "board": board,
-            "boardName": board_name,
-            "dim": dim,
-            "window": window,
-            "data": result,
-        })
+        return self._json(
+            {
+                "board": board,
+                "boardName": board_name,
+                "dim": dim,
+                "window": window,
+                "data": result,
+            }
+        )
 
     def _query_token(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -126,8 +136,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         return (qs.get("token") or [""])[0]
 
     def _session_sig(self, role):
-        return hmac.new(self.token.encode("utf-8"), role.encode("utf-8"),
-                        hashlib.sha256).hexdigest()[:32]
+        return hmac.new(
+            self.token.encode("utf-8"), role.encode("utf-8"), hashlib.sha256
+        ).hexdigest()[:32]
 
     def _role(self):
         if not self.token:
@@ -144,7 +155,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 if "." in val:
                     role, sig = val.split(".", 1)
                     if role in ("admin", "guest") and hmac.compare_digest(
-                            sig, self._session_sig(role)):
+                        sig, self._session_sig(role)
+                    ):
                         return role
         return ""
 
@@ -179,9 +191,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if os.path.exists(icon):
                 with open(icon, "rb") as f:
                     data = f.read()
-                return self._send(data, "image/png", 200, {
-                    "Cache-Control": "public, max-age=86400",
-                })
+                return self._send(
+                    data,
+                    "image/png",
+                    200,
+                    {
+                        "Cache-Control": "public, max-age=86400",
+                    },
+                )
             return self._send(b"not found", "text/plain", 404)
 
         # manifest
@@ -281,8 +298,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(data, ctype, 200, cache)
             except Exception as e:
                 print("  图片 %s 获取失败: %s" % (name, str(e)[:70]))
-                return self._send(_TRANSPARENT_PNG, "image/png", 200,
-                                  {"Cache-Control": "public, max-age=60"})
+                return self._send(
+                    _TRANSPARENT_PNG, "image/png", 200, {"Cache-Control": "public, max-age=60"}
+                )
 
 
 class Server(socketserver.ThreadingTCPServer):

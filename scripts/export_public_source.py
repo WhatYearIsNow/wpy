@@ -1,4 +1,5 @@
 """导出不含本地数据和 Git 历史的源码目录；只创建新目录，不覆盖目标。"""
+
 from __future__ import annotations
 
 import argparse
@@ -12,12 +13,29 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIRS = {"wpy", "scripts", "tests", "tools", "deploy", "docs", "pages", ".github"}
 SOURCE_FILES = {
-    "README.md", "LICENSE", "CHANGELOG.md", "CONTRIBUTING.md", "pyproject.toml",
-    "MANIFEST.in", ".gitignore", ".gitattributes", "ask.py", "AGENTS.md",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "pyproject.toml",
+    "MANIFEST.in",
+    ".gitignore",
+    ".gitattributes",
+    "ask.py",
+    "AGENTS.md",
 }
 PRIVATE_DIRS = {
-    ".git", ".backup", "data", "build", "dist", "logs", "__pycache__",
-    ".pytest_cache", ".venv", "venv", "htmlcov",
+    ".git",
+    ".backup",
+    "data",
+    "build",
+    "dist",
+    "logs",
+    "__pycache__",
+    ".pytest_cache",
+    ".venv",
+    "venv",
+    "htmlcov",
 }
 
 
@@ -28,9 +46,12 @@ def public_path(path: Path) -> bool:
     name = path.name
     if name.startswith(".env") and name != ".env.example":
         return False
-    if (name == ".tju_key" or name.startswith(".coverage")
-            or name.endswith((".pyc", ".pyo", ".bak", ".tmp", ".db", ".sqlite", ".sqlite3"))
-            or ".bak-" in name):
+    if (
+        name == ".tju_key"
+        or name.startswith(".coverage")
+        or name.endswith((".pyc", ".pyo", ".bak", ".tmp", ".db", ".sqlite", ".sqlite3"))
+        or ".bak-" in name
+    ):
         return False
     if path.parts[0] == "deploy" and name.startswith("env.") and not name.endswith(".example"):
         return False
@@ -68,12 +89,18 @@ def export(output: Path) -> int:
                 shutil.copy2(src, dest)
                 count += 1
 
-        for required in ("LICENSE", "README.md", "pyproject.toml", "scripts/check_public_source.py"):
+        for required in (
+            "LICENSE",
+            "README.md",
+            "pyproject.toml",
+            "scripts/check_public_source.py",
+        ):
             if not (stage / required).is_file():
                 raise ValueError(f"缺少发布文件：{required}")
         result = subprocess.run(
             [sys.executable, str(stage / "scripts" / "check_public_source.py")],
-            cwd=stage, check=False,
+            cwd=stage,
+            check=False,
         )
         if result.returncode:
             raise ValueError("源码检查失败，未生成发布目录")

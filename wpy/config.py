@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """路径与全局常量。代码与 data/ 分离，升级脚本不碰数据。"""
+
 import os
 import sys
 
@@ -7,8 +8,9 @@ import sys
 def _default_base_dir():
     """源码运行使用项目目录；安装运行使用用户可写的数据目录。"""
     source_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if (os.path.exists(os.path.join(source_dir, ".git"))
-            or os.path.isfile(os.path.join(source_dir, "pyproject.toml"))):
+    if os.path.exists(os.path.join(source_dir, ".git")) or os.path.isfile(
+        os.path.join(source_dir, "pyproject.toml")
+    ):
         return source_dir
     if sys.platform == "win32":
         user_dir = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/AppData/Local")
@@ -73,8 +75,14 @@ THROTTLE_BACKOFF = 30
 REQUEST_INTERVAL = 0.0
 
 DEFAULT_TYPE_NAMES = {
-    1: "校务专区", 2: "青年湖底", 3: "学习新知", 4: "交友恋爱",
-    5: "二次元", 6: "摆摊", 10: "Bugs反馈", 13: "美食专区",
+    1: "校务专区",
+    2: "青年湖底",
+    3: "学习新知",
+    4: "交友恋爱",
+    5: "二次元",
+    6: "摆摊",
+    10: "Bugs反馈",
+    13: "美食专区",
 }
 RECOMMEND_TYPE = 0
 

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """流水线编排：full / resume / partial / update。"""
+
 from __future__ import annotations
 
 import json
@@ -15,10 +16,14 @@ from .essence import crawl_essence, crawl_my_posts
 from .export_ops import do_export
 from .list import do_list
 from .shared import (
-    confirm_plan, map_type_names, usable_types, warn_if_only_recommend,
+    confirm_plan,
+    map_type_names,
+    usable_types,
+    warn_if_only_recommend,
     warn_unknown_types,
 )
 from .status_view import do_status
+
 
 def run_pipeline(token, args, mode="full", type_names=None):
     """四种抓取模式共用的流水线。
@@ -48,8 +53,7 @@ def run_pipeline(token, args, mode="full", type_names=None):
     # 以前只在 comment 子命令里定义了 --order，all/resume 走同一条流水线却拿不到，
     # 于是评论阶段对每一帖都抛 AttributeError，整批被标记为失败。
     # 这里统一兜底，任何入口都不会再缺。
-    for k, v in (("order", 1), ("official", True),
-                 ("no_comment_filter", False)):
+    for k, v in (("order", 1), ("official", True), ("no_comment_filter", False)):
         if not hasattr(args, k):
             setattr(args, k, v)
 
@@ -57,9 +61,13 @@ def run_pipeline(token, args, mode="full", type_names=None):
     if not getattr(args, "no_confirm", False):
         try:
             conn = open_db()
-            ok = confirm_plan(conn, set(args.types) if args.types else set(),
-                              type_names, getattr(args, "since_date", ""),
-                              args.limit)
+            ok = confirm_plan(
+                conn,
+                set(args.types) if args.types else set(),
+                type_names,
+                getattr(args, "since_date", ""),
+                args.limit,
+            )
             conn.close()
         except Exception:
             ok = True
@@ -81,11 +89,9 @@ def run_pipeline(token, args, mode="full", type_names=None):
         if hint:
             log(hint)
         log("=" * 60)
-        write_run_state("运行中（第 %s 步 / 共 %s 步）" % (step, TOTAL_STEPS),
-                        title)
+        write_run_state("运行中（第 %s 步 / 共 %s 步）" % (step, TOTAL_STEPS), title)
 
-    banner(1, "抓帖子列表",
-           "全量：从每个板块第 1 页抓到底" if mode == "full" else "")
+    banner(1, "抓帖子列表", "全量：从每个板块第 1 页抓到底" if mode == "full" else "")
     do_list(token, args, type_names)
 
     banner(2, "抓取精华集合", "精华不是板块，是 etag=recommend 的筛选结果，单独记录")
@@ -106,6 +112,7 @@ def run_pipeline(token, args, mode="full", type_names=None):
 
     banner(7, "生成看板", "生成服务版空壳页面（数据走本地 API）")
     from ..ui import build_from_db
+
     build_from_db(DB_PATH, HTML_PATH, getattr(args, "max_posts", 0))
 
     el = int(time.time() - started)
@@ -129,8 +136,8 @@ def do_resume(token, args, type_names=None):
     """
     conn = open_db()
     states = conn.execute(
-        'SELECT "type", name, status, last_page, total_pages '
-        'FROM scrape_progress ORDER BY "type"').fetchall()
+        'SELECT "type", name, status, last_page, total_pages FROM scrape_progress ORDER BY "type"'
+    ).fetchall()
     conn.close()
     pending = [s for s in states if s[2] != "done"]
     if not states:
@@ -138,8 +145,7 @@ def do_resume(token, args, type_names=None):
     elif pending:
         log("以下板块还没抓完，继续：")
         for t, name, st, lp, tp in pending:
-            log("  %s(%s)：已抓 %s 页%s"
-                % (name, t, lp, "/%s" % tp if tp else ""))
+            log("  %s(%s)：已抓 %s 页%s" % (name, t, lp, "/%s" % tp if tp else ""))
         log("已抓完的板块会自动跳过。")
     else:
         log("所有板块都标记为已抓完。如需只补新帖，请用「补充抓取」。")
@@ -174,8 +180,10 @@ def do_partial(token, args, type_names=None):
         warn_unknown_types(args.types, type_names, "partial")
         valid = usable_types(args.types, type_names)
         if not valid:
-            log("错误：指定的板块都不在当前可用映射中，partial 不执行。可选：" +
-                "、".join("%s=%s" % (k, v) for k, v in sorted(type_names.items())))
+            log(
+                "错误：指定的板块都不在当前可用映射中，partial 不执行。可选："
+                + "、".join("%s=%s" % (k, v) for k, v in sorted(type_names.items()))
+            )
             return
         args.types = valid
         scoped = {t: type_names[t] for t in valid}
@@ -191,17 +199,17 @@ def do_partial(token, args, type_names=None):
         # 指定了具体帖子就不用遍历板块，直接把这批 id 的详情与评论抓下来
         conn = open_db()
         placeholders = ",".join("?" * len(args.ids))
-        existing = [r[0] for r in conn.execute(
-            "SELECT id FROM posts WHERE id IN (%s)" % placeholders, args.ids)]
+        existing = [
+            r[0]
+            for r in conn.execute("SELECT id FROM posts WHERE id IN (%s)" % placeholders, args.ids)
+        ]
         conn.close()
         missing = [i for i in args.ids if i not in existing]
         if missing:
-            log("以下帖子库里还没有，将先抓它们的基本信息：%s"
-                % ",".join(str(i) for i in missing))
+            log("以下帖子库里还没有，将先抓它们的基本信息：%s" % ",".join(str(i) for i in missing))
             fetch_posts_by_id(token, args, missing)
 
-    run_pipeline(token, args, mode="partial",
-                 type_names=scoped if not args.ids else {})
+    run_pipeline(token, args, mode="partial", type_names=scoped if not args.ids else {})
 
 
 def fetch_posts_by_id(token, args, ids):
@@ -214,8 +222,7 @@ def fetch_posts_by_id(token, args, ids):
     fuse = Fuse()
     for pid in ids:
         try:
-            data = with_retry(lambda: api_get(token, "post", {"id": pid}),
-                              "帖子%s详情" % pid, fuse)
+            data = with_retry(lambda: api_get(token, "post", {"id": pid}), "帖子%s详情" % pid, fuse)
             post = data.get("post") or {}
             if not post.get("id"):
                 log("  帖子 %s 不存在或无权查看" % pid)
@@ -230,4 +237,3 @@ def fetch_posts_by_id(token, args, ids):
             log("  帖子 %s 抓取失败：%s" % (pid, str(e)[:80]))
         pace(args.interval)
     conn.close()
-

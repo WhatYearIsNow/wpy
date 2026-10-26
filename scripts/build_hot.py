@@ -5,6 +5,7 @@
   WPY_HOT_TOKEN  看板访问令牌（用于热榜链接跳转）。
                  默认不设置；设置的值会公开写入生成的 HTML。
 """
+
 import json
 import os
 import sqlite3
@@ -23,12 +24,16 @@ OUT = Path(HOT_PATH)
 conn = sqlite3.connect(str(DB))
 conn.row_factory = sqlite3.Row
 
+
 def q(sql, args=()):
     return [dict(r) for r in conn.execute(sql, args).fetchall()]
 
+
 def fmt_time(s):
-    if not s: return ""
+    if not s:
+        return ""
     return s[:16].replace("T", " ")
+
 
 WINDOWS = {
     "day": ("近24小时", "-1 day"),
@@ -45,12 +50,19 @@ DIMENSIONS = [
 COL_MAP = {"view": "浏览量", "like": "点赞数", "comment": "评论数", "fav": "收藏数"}
 
 BOARD_MAP = {
-    1: "校务专区", 2: "青年湖底", 3: "学习新知", 4: "交友恋爱",
-    5: "二次元", 6: "摆摊", 8: "数码科技", 13: "美食专区",
+    1: "校务专区",
+    2: "青年湖底",
+    3: "学习新知",
+    4: "交友恋爱",
+    5: "二次元",
+    6: "摆摊",
+    8: "数码科技",
+    13: "美食专区",
 }
 
 # 收集所有需要正文的 post id
 needed_ids = set()
+
 
 def fetch_list(where_sql, order_col, limit=50):
     rows = q(f"""
@@ -63,12 +75,16 @@ def fetch_list(where_sql, order_col, limit=50):
         needed_ids.add(r["id"])
     return rows
 
+
 new_posts = {}
 for wk, (label, delta) in WINDOWS.items():
     new_posts[wk] = {"label": label}
     for dk, _ in DIMENSIONS:
         new_posts[wk][dk] = fetch_list(
-            f"replace(substr(发布时间,1,19),'T',' ') > datetime('now','localtime','{delta}')", COL_MAP[dk], 50)
+            f"replace(substr(发布时间,1,19),'T',' ') > datetime('now','localtime','{delta}')",
+            COL_MAP[dk],
+            50,
+        )
 
 overall = {}
 for dk, _ in DIMENSIONS:
@@ -346,8 +362,13 @@ render();
 """
 
 token_json = json.dumps(HOT_TOKEN, ensure_ascii=False).replace("<", "\\u003c")
-OUT.write_text(HTML.replace("__DATA__", json.dumps(data, ensure_ascii=False)).replace("__HOT_TOKEN__", token_json), encoding="utf-8")
-print(f"生成完成: {OUT} ({OUT.stat().st_size//1024} KB)")
+OUT.write_text(
+    HTML.replace("__DATA__", json.dumps(data, ensure_ascii=False)).replace(
+        "__HOT_TOKEN__", token_json
+    ),
+    encoding="utf-8",
+)
+print(f"生成完成: {OUT} ({OUT.stat().st_size // 1024} KB)")
 
 # Patch 主站 HTML：支持 URL ?postId=xxx 自动打开帖子
 MAIN_HTML = Path(HTML_PATH)

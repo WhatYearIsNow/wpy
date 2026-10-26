@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Phase 9 real-API probes (small, non-full crawl)."""
+
 from __future__ import annotations
 
 import json
@@ -12,6 +13,7 @@ sys.path.insert(0, ROOT)
 os.environ.setdefault("PYTHONUTF8", "1")
 
 from wpy.cli import _ensure_utf8_stdio
+
 _ensure_utf8_stdio()
 
 from wpy.auth import get_token
@@ -30,8 +32,20 @@ def probe_list(token):
         items, total, tp = fetch_list(token, tid, 1, 5)
         dt = int((time.time() - t0) * 1000)
         ids = [it.get("id") for it in items]
-        print("type", tid, "ms", dt, "n", len(items), "total", total,
-              "total_pages", tp, "ids", ids[:5])
+        print(
+            "type",
+            tid,
+            "ms",
+            dt,
+            "n",
+            len(items),
+            "total",
+            total,
+            "total_pages",
+            tp,
+            "ids",
+            ids[:5],
+        )
         # empty page check
         items2, total2, _ = fetch_list(token, tid, 9999, 5)
         print("type", tid, "deep_page_n", len(items2), "total", total2)
@@ -41,10 +55,16 @@ def probe_post_detail(token, pid):
     print("=== POST detail", pid, "===")
     data = api_get(token, "post", {"id": pid})
     post = data.get("post") or {}
-    print("title", (post.get("title") or "")[:40],
-          "content_len", len(post.get("content") or ""),
-          "imgs", len(post.get("image_urls") or []),
-          "comments", post.get("comment_count"))
+    print(
+        "title",
+        (post.get("title") or "")[:40],
+        "content_len",
+        len(post.get("content") or ""),
+        "imgs",
+        len(post.get("image_urls") or []),
+        "comments",
+        post.get("comment_count"),
+    )
 
 
 def probe_floors(token, pid):
@@ -56,18 +76,18 @@ def probe_floors(token, pid):
     t0 = time.time()
     try:
         floors, total = fetch_floors(token, pid, 1, 20, 1)
-        print("floors n", len(floors), "total", total,
-              "ms", int((time.time() - t0) * 1000))
+        print("floors n", len(floors), "total", total, "ms", int((time.time() - t0) * 1000))
         if floors:
             f0 = floors[0]
-            print("floor0 keys sample",
-                  {k: f0.get(k) for k in ("id", "nickname", "sub_floor_cnt", "content")})
+            print(
+                "floor0 keys sample",
+                {k: f0.get(k) for k in ("id", "nickname", "sub_floor_cnt", "content")},
+            )
             fid = f0.get("id")
             if f0.get("sub_floor_cnt"):
                 t1 = time.time()
                 subs, st = fetch_floor_replies(token, fid, 0, 10)
-                print("subs n", len(subs), "total", st,
-                      "ms", int((time.time() - t1) * 1000))
+                print("subs n", len(subs), "total", st, "ms", int((time.time() - t1) * 1000))
     except Exception as e:
         print("floors probe error", type(e).__name__, e)
 
@@ -91,11 +111,11 @@ def main():
     probe_list(token)
     conn = open_db()
     row = conn.execute(
-        'SELECT id FROM posts WHERE "板块ID"=2 AND "评论数">0 '
-        'ORDER BY id DESC LIMIT 3').fetchall()
+        'SELECT id FROM posts WHERE "板块ID"=2 AND "评论数">0 ORDER BY id DESC LIMIT 3'
+    ).fetchall()
     type1 = conn.execute(
-        'SELECT id FROM posts WHERE "板块ID"=1 AND "评论数">0 '
-        'ORDER BY id DESC LIMIT 1').fetchone()
+        'SELECT id FROM posts WHERE "板块ID"=1 AND "评论数">0 ORDER BY id DESC LIMIT 1'
+    ).fetchone()
     conn.close()
     pids = [r[0] for r in row]
     print("sample pids", pids, "type1", type1)

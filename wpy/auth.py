@@ -3,6 +3,7 @@
 
 HTTP 请求统一走 wpy.http；本模块只负责账号/token/本地凭据。
 """
+
 import base64
 import getpass
 import json
@@ -10,7 +11,10 @@ import os
 import urllib.parse
 
 from .config import (
-    CRED_PATH, DATA_DIR, LAKE_API, MAIN_API,
+    CRED_PATH,
+    DATA_DIR,
+    LAKE_API,
+    MAIN_API,
 )
 from .config_models import AuthConfig
 from .http import FatalError, request_json  # noqa: F401  FatalError 兼容再导出
@@ -22,15 +26,16 @@ def _ticket():
     errors = config.validate()
     if errors:
         raise FatalError("API 登录配置错误：" + "；".join(errors))
-    return base64.b64encode(
-        (config.app_key + "." + config.app_secret).encode("utf-8")).decode("ascii")
+    return base64.b64encode((config.app_key + "." + config.app_secret).encode("utf-8")).decode(
+        "ascii"
+    )
 
 
 def http_json(url, method="GET", headers=None, body=None, timeout=30):
     """兼容入口：认证请求不走全局限速，避免登录被抓取限速拖累。"""
     return request_json(
-        url, token=None, timeout=timeout, throttle=False,
-        method=method, headers=headers, body=body)
+        url, token=None, timeout=timeout, throttle=False, method=method, headers=headers, body=body
+    )
 
 
 def login(account, password):
@@ -56,8 +61,10 @@ def harden_file_permissions(path):
     if os.name != "nt":
         return
     try:
-        os.system('icacls "%s" /inheritance:r /grant:r "%s:(R)" >nul 2>&1'
-                  % (path, os.environ.get("USERNAME", "")))
+        os.system(
+            'icacls "%s" /inheritance:r /grant:r "%s:(R)" >nul 2>&1'
+            % (path, os.environ.get("USERNAME", ""))
+        )
     except Exception:
         pass
 
@@ -65,8 +72,7 @@ def harden_file_permissions(path):
 def _save_cred(account, password):
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(CRED_PATH, "w", encoding="utf-8") as f:
-        json.dump({"account": account, "password": password}, f,
-                  ensure_ascii=False, indent=2)
+        json.dump({"account": account, "password": password}, f, ensure_ascii=False, indent=2)
     harden_file_permissions(CRED_PATH)
 
 
@@ -89,7 +95,8 @@ def get_token(interactive=True):
     if not interactive:
         raise FatalError(
             "缺少凭据：请设置 WPY_ACCOUNT / WPY_PASSWORD，"
-            "或提供 data/凭据.json（服务器定时任务请用环境变量）")
+            "或提供 data/凭据.json（服务器定时任务请用环境变量）"
+        )
 
     print("首次使用需要登录微北洋（只读，不会点赞/发帖）。")
     account = input("学号：").strip()

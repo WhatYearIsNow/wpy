@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """wpy.db 中纯函数的单元测试。"""
+
 import json
 import pytest
 from wpy.db import _int, is_essence, post_tuple, floor_tuple, iter_floors, official_row
@@ -111,35 +112,35 @@ class TestPostTuple:
 
     def test_full_conversion(self):
         result = post_tuple(self._sample())
-        assert result[0] == 1001   # id
+        assert result[0] == 1001  # id
         assert result[1] == 77990  # uid
         assert result[2] == "测试帖子"
         assert result[3] == "正文内容"
         assert result[4] == "2026-09-01T12:00:00"
         assert result[5] == "测试用户"
-        assert result[6] == 5      # level
+        assert result[6] == 5  # level
         assert result[7] == "http://av.png"
-        assert result[8] == 2      # type
+        assert result[8] == 2  # type
         assert result[9] == "计算机学院"
         assert result[10] == "技术"
-        assert result[11] == 10    # tag id
-        assert result[12] == 10    # like_count
-        assert result[13] == 5     # fav_count
-        assert result[14] == 3     # comment_count
-        assert result[15] == 100   # visit_count
-        assert result[16] == 0     # rating
-        assert result[17] == 1     # campus
-        assert result[18] == 0     # variant
+        assert result[11] == 10  # tag id
+        assert result[12] == 10  # like_count
+        assert result[13] == 5  # fav_count
+        assert result[14] == 3  # comment_count
+        assert result[15] == 100  # visit_count
+        assert result[16] == 0  # rating
+        assert result[17] == 1  # campus
+        assert result[18] == 0  # variant
         assert result[19] == "是"  # solved
-        assert result[20] == ""    # e_tag
-        assert result[21] == 2     # image count
+        assert result[20] == ""  # e_tag
+        assert result[21] == 2  # image count
         assert len(json.loads(result[22])) == 2  # image urls json
 
     def test_missing_fields_defaults(self):
         result = post_tuple({})
-        assert result[0] == 0      # id
-        assert result[2] == ""     # title
-        assert result[3] == ""     # content
+        assert result[0] == 0  # id
+        assert result[2] == ""  # title
+        assert result[3] == ""  # content
         assert result[19] == "否"  # solved
 
     def test_image_count_zero(self):
@@ -172,21 +173,21 @@ class TestFloorTuple:
 
     def test_basic(self):
         result = floor_tuple(self._sample_floor(), post_id=1001, parent_id=0)
-        assert result[0] == 5001   # floor id
-        assert result[1] == 1001   # post id
-        assert result[2] == 0      # parent id
+        assert result[0] == 5001  # floor id
+        assert result[1] == 1001  # post id
+        assert result[2] == 0  # parent id
         assert result[3] == 77990  # uid
         assert result[4] == "评论者"
-        assert result[5] == 3      # level
+        assert result[5] == 3  # level
         assert result[6] == "http://u.png"
         assert result[7] == "评论内容"
         assert result[8] == "2026-09-01T13:00:00"
         assert result[9] == "被回复者"
-        assert result[10] == 2     # like_count
-        assert result[11] == 1     # value
-        assert result[12] == 0     # sub_floor_cnt
+        assert result[10] == 2  # like_count
+        assert result[11] == 1  # value
+        assert result[12] == 0  # sub_floor_cnt
         assert result[13] == "http://f.png"
-        assert result[14] == 0     # is_owner
+        assert result[14] == 0  # is_owner
 
 
 class TestIterFloors:
@@ -266,16 +267,16 @@ class TestOfficialRow:
             "created_at": "2026-09-01T14:00:00",
         }
         result = official_row(f, post_id=1001)
-        assert result[0] == 6001   # id
-        assert result[1] == 1001   # post_id
-        assert result[2] == 100    # uid
+        assert result[0] == 6001  # id
+        assert result[1] == 1001  # post_id
+        assert result[2] == 100  # uid
         assert result[3] == "官方"  # nickname
-        assert result[4] == ""     # avatar
+        assert result[4] == ""  # avatar
         assert result[5] == "官方回复内容"  # content
         assert result[6] == "2026-09-01T14:00:00"  # created_at
 
     def test_missing_fields(self):
         f = {"id": 6001, "content": "回复", "user_info": {}}
         result = official_row(f, post_id=1001)
-        assert result[0] == 6001   # id
+        assert result[0] == 6001  # id
         assert result[5] == "回复"  # content (index 5)

@@ -9,6 +9,7 @@
 
 全局限速器单例 LIMITER：所有阶段共享，禁止改回 per-thread sleep。
 """
+
 import json
 from email.utils import parsedate_to_datetime
 import ssl
@@ -19,8 +20,14 @@ import urllib.parse
 import urllib.request
 
 from .config import (
-    FUSE_LIMIT, LAKE_API, MAX_RETRY, MIN_QPS, REQUEST_INTERVAL, TARGET_QPS,
-    THROTTLE_BACKOFF, TIMEOUT,
+    FUSE_LIMIT,
+    LAKE_API,
+    MAX_RETRY,
+    MIN_QPS,
+    REQUEST_INTERVAL,
+    TARGET_QPS,
+    THROTTLE_BACKOFF,
+    TIMEOUT,
 )
 from .runlog import log
 from .metrics import metrics
@@ -78,8 +85,10 @@ class Fuse:
             self.count += 1
             if self.count >= self.limit:
                 self.stopped = True
-                self.reason = ("连续失败 %d 次，已熔断停止（最后错误：%s）"
-                               % (self.count, str(err)[:160]))
+                self.reason = "连续失败 %d 次，已熔断停止（最后错误：%s）" % (
+                    self.count,
+                    str(err)[:160],
+                )
             return self.stopped
 
     def check(self):
@@ -141,8 +150,10 @@ class RateLimiter:
             self.paused_until = time.time() + THROTTLE_BACKOFF
             self.next_slot = self.paused_until
             new = self.current
-        log("  ⚠ 服务端限流%s：速率 %.1f → %.1f QPS，暂停 %d 秒后继续"
-            % (("（%s）" % reason) if reason else "", old, new, THROTTLE_BACKOFF))
+        log(
+            "  ⚠ 服务端限流%s：速率 %.1f → %.1f QPS，暂停 %d 秒后继续"
+            % (("（%s）" % reason) if reason else "", old, new, THROTTLE_BACKOFF)
+        )
 
     def relax(self):
         """长时间没再被限流，就逐步恢复到目标速率。"""
@@ -164,8 +175,16 @@ class RateLimiter:
 LIMITER = RateLimiter(TARGET_QPS)
 
 
-def request_json(url, token=None, timeout=TIMEOUT, throttle=True,
-                 method="GET", headers=None, body=None, max_bytes=None):
+def request_json(
+    url,
+    token=None,
+    timeout=TIMEOUT,
+    throttle=True,
+    method="GET",
+    headers=None,
+    body=None,
+    max_bytes=None,
+):
     """发一个 HTTP 请求并解析 JSON。
 
     throttle=True 时会先向全局限速器申请配额，保证所有线程加起来
@@ -211,8 +230,7 @@ def request_json(url, token=None, timeout=TIMEOUT, throttle=True,
         metrics.timing("http.duration", time.time() - t0)
 
 
-def get_bytes(url, headers=None, timeout=TIMEOUT, throttle=False,
-              max_bytes=None):
+def get_bytes(url, headers=None, timeout=TIMEOUT, throttle=False, max_bytes=None):
     """GET 原始字节（图片下载、代理）。默认不走全局限速（保持历史行为）。"""
     if throttle:
         LIMITER.acquire()
@@ -238,11 +256,14 @@ def api_get(token, path, params=None, allow_null_data=False):
     if code != 200:
         msg = str(r.get("msg"))[:160]
         if code in (401, 403):
-            raise FatalError("接口 %s 返回 code=%s（%s），token 可能已失效，"
-                             "请重新运行以重新登录" % (path, code, msg))
+            raise FatalError(
+                "接口 %s 返回 code=%s（%s），token 可能已失效，"
+                "请重新运行以重新登录" % (path, code, msg)
+            )
         if code == 400:
-            raise BadRequest("接口 %s 返回 code=400（%s）；请求参数：%s"
-                             % (path, msg, str(params)[:200]))
+            raise BadRequest(
+                "接口 %s 返回 code=400（%s）；请求参数：%s" % (path, msg, str(params)[:200])
+            )
         if code == 429:
             raise Throttled("接口 %s 返回 code=429（%s）" % (path, msg))
         raise RuntimeError("接口 %s 返回 code=%s：%s" % (path, code, msg))
@@ -277,16 +298,22 @@ def with_retry(fn, what, fuse, interval=REQUEST_INTERVAL):
             LIMITER.penalize(str(e)[:60])
             if attempt < MAX_RETRY:
                 continue
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError,
-                ConnectionError, OSError, RuntimeError, ValueError) as e:
+        except (
+            urllib.error.URLError,
+            urllib.error.HTTPError,
+            TimeoutError,
+            ConnectionError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as e:
             last = e
             fuse.fail(e)
             if fuse.stopped:
                 break
             if attempt < MAX_RETRY:
-                wait = min(2 ** attempt, 10)
-                log("  %s 第 %d 次失败（%s），%d 秒后重试"
-                    % (what, attempt, str(e)[:90], wait))
+                wait = min(2**attempt, 10)
+                log("  %s 第 %d 次失败（%s），%d 秒后重试" % (what, attempt, str(e)[:90], wait))
                 time.sleep(wait)
     raise RuntimeError("%s 重试 %d 次仍失败：%s" % (what, MAX_RETRY, last))
 

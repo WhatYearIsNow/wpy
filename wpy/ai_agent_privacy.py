@@ -1,4 +1,5 @@
 """论坛发言与模型上下文的本机隐私检查，不记录匹配到的内容。"""
+
 import re
 import unicodedata
 
@@ -8,17 +9,24 @@ PII = re.compile(
     r"|(?<!\d)1[3-9]\d{9}(?!\d)"
     r"|(?<!\d)(?:20|30)\d{8,10}(?!\d)"
     r"|(?<!\d)\d{17}[\dx](?!\d)"
-    r"|/(?:etc|root|home|opt|var)/[^\s]+", re.IGNORECASE)
+    r"|/(?:etc|root|home|opt|var)/[^\s]+",
+    re.IGNORECASE,
+)
 
 
 def normalized(value):
-    return "".join(c for c in unicodedata.normalize("NFKC", value).casefold()
-                   if not c.isspace() and unicodedata.category(c) != "Cf")
+    return "".join(
+        c
+        for c in unicodedata.normalize("NFKC", value).casefold()
+        if not c.isspace() and unicodedata.category(c) != "Cf"
+    )
 
 
 class PrivacyGuard:
     def __init__(self, protected=()):
-        self._protected = tuple(normalized(value) for value in protected if isinstance(value, str) and value)
+        self._protected = tuple(
+            normalized(value) for value in protected if isinstance(value, str) and value
+        )
 
     def contains(self, value):
         if not isinstance(value, str):

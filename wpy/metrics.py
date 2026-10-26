@@ -13,6 +13,7 @@
     metrics.timing("http.duration", 0.234)
     snapshot = metrics.snapshot()
 """
+
 from __future__ import annotations
 
 import json

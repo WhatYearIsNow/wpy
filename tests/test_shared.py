@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """wpy.crawler.shared 中纯函数的单元测试。"""
+
 import threading
 import pytest
 from wpy.crawler.shared import (
@@ -243,30 +244,39 @@ class TestRunWorkers:
     def test_single_worker_no_threading(self):
         """n=1 时不走线程分支，直接调用 fn。"""
         from wpy.crawler.shared import run_workers
+
         called = []
+
         def fn():
             called.append(1)
+
         run_workers(fn, 1)
         assert called == [1]
 
     def test_exception_propagation(self):
         from wpy.crawler.shared import run_workers
+
         def fn():
             raise ValueError("worker error")
+
         with pytest.raises(ValueError, match="worker error"):
             run_workers(fn, 2)
 
     def test_fuse_tripped_not_propagated(self):
         """FuseTripped 是正常退出信号，不应传播。"""
         from wpy.crawler.shared import run_workers
+
         def fn():
             raise FuseTripped("circuit open")
+
         # 不应抛出
         run_workers(fn, 2)
 
     def test_first_error_propagated(self):
         from wpy.crawler.shared import run_workers
+
         def fn():
             raise RuntimeError("error A")
+
         with pytest.raises(RuntimeError, match="error A"):
             run_workers(fn, 2)

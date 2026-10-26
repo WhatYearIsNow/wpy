@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """wpy.config_models 的单元测试。"""
+
 import os
 import pytest
 from wpy.config_models import (
@@ -176,7 +177,9 @@ class TestAuthConfig:
         cfg = AuthConfig(
             app_key="banana",
             app_secret="custom_secret_123",
-            main_api="", lake_api="", pic_api="",
+            main_api="",
+            lake_api="",
+            pic_api="",
         )
         assert cfg.validate() == []
 

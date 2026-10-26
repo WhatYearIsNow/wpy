@@ -2,6 +2,7 @@
 
 全程使用临时数据库与本地 HTTP，不触碰部署数据。
 """
+
 import json
 import os
 import socket
@@ -21,13 +22,16 @@ from wpy import ranking as ranking_mod
 
 def _seed(db_path, rows):
     from wpy.db import open_db
+
     conn = open_db(str(db_path))
     for r in rows:
         conn.execute(
             'INSERT INTO posts (id, "标题", "板块ID", "作者", "发布时间",'
             ' "浏览量", "点赞数", "评论数", "收藏数")'
-            ' VALUES (:id, :标题, :板块ID, :作者, :发布时间,'
-            ' :浏览量, :点赞数, :评论数, :收藏数)', r)
+            " VALUES (:id, :标题, :板块ID, :作者, :发布时间,"
+            " :浏览量, :点赞数, :评论数, :收藏数)",
+            r,
+        )
     conn.commit()
     conn.close()
 
@@ -38,14 +42,50 @@ def _posts():
     old = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - 40 * 86400))
     ancient = "2021-11-05T12:40:00"
     return [
-        dict(id=1, 标题="今天热帖", 板块ID=2, 作者="甲", 发布时间=now,
-             浏览量=900, 点赞数=10, 评论数=1, 收藏数=2),
-        dict(id=2, 标题="三天前热帖", 板块ID=3, 作者="乙", 发布时间=days7,
-             浏览量=5000, 点赞数=99, 评论数=5, 收藏数=6),
-        dict(id=3, 标题="四十天前帖子", 板块ID=2, 作者="丙", 发布时间=old,
-             浏览量=500, 点赞数=7, 评论数=0, 收藏数=0),
-        dict(id=4, 标题="远古名帖", 板块ID=4, 作者="丁", 发布时间=ancient,
-             浏览量=47000, 点赞数=800, 评论数=300, 收藏数=100),
+        dict(
+            id=1,
+            标题="今天热帖",
+            板块ID=2,
+            作者="甲",
+            发布时间=now,
+            浏览量=900,
+            点赞数=10,
+            评论数=1,
+            收藏数=2,
+        ),
+        dict(
+            id=2,
+            标题="三天前热帖",
+            板块ID=3,
+            作者="乙",
+            发布时间=days7,
+            浏览量=5000,
+            点赞数=99,
+            评论数=5,
+            收藏数=6,
+        ),
+        dict(
+            id=3,
+            标题="四十天前帖子",
+            板块ID=2,
+            作者="丙",
+            发布时间=old,
+            浏览量=500,
+            点赞数=7,
+            评论数=0,
+            收藏数=0,
+        ),
+        dict(
+            id=4,
+            标题="远古名帖",
+            板块ID=4,
+            作者="丁",
+            发布时间=ancient,
+            浏览量=47000,
+            点赞数=800,
+            评论数=300,
+            收藏数=100,
+        ),
     ]
 
 
@@ -102,14 +142,19 @@ def test_board_map_names_kept():
     assert ranking_mod.BOARD_MAP[13] == "美食专区"
 
 
-@pytest.mark.parametrize("qs,want", [
-    ("board=all&dim=view&window=all&limit=2", {"board": "all", "boardName": "全站", "ids": [4, 2]}),
-    ("board=2", {"board": "2", "boardName": "青年湖底", "ids": [1, 3]}),
-    ("", {"board": "all", "boardName": "全站", "ids": [4, 2, 1, 3]}),
-])
+@pytest.mark.parametrize(
+    "qs,want",
+    [
+        (
+            "board=all&dim=view&window=all&limit=2",
+            {"board": "all", "boardName": "全站", "ids": [4, 2]},
+        ),
+        ("board=2", {"board": "2", "boardName": "青年湖底", "ids": [1, 3]}),
+        ("", {"board": "all", "boardName": "全站", "ids": [4, 2, 1, 3]}),
+    ],
+)
 def test_board_ranking_endpoint(tmp_path, qs, want):
-    env = {key: value for key, value in os.environ.items()
-           if not key.startswith("WPY_")}
+    env = {key: value for key, value in os.environ.items() if not key.startswith("WPY_")}
     for name in ("DATA", "BUILD", "LOG", "PAGES"):
         directory = tmp_path / name.lower()
         directory.mkdir()
@@ -121,10 +166,22 @@ def test_board_ranking_endpoint(tmp_path, qs, want):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     proc = subprocess.Popen(
-        [sys.executable, "-m", "wpy", "serve", "--host", "127.0.0.1",
-         "--port", str(port), "--no-open"],
-        cwd=Path(__file__).resolve().parents[1], env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        [
+            sys.executable,
+            "-m",
+            "wpy",
+            "serve",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--no-open",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
     )
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     base = f"http://127.0.0.1:{port}"

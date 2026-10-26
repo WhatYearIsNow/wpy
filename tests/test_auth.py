@@ -1,4 +1,5 @@
 """认证配置必须在任何网络请求或账号密码提示之前验证。"""
+
 import base64
 from types import SimpleNamespace
 
@@ -13,10 +14,14 @@ def test_missing_api_secret_fails_before_credentials_or_network(monkeypatch, int
     monkeypatch.delenv("WPY_APP_SECRET", raising=False)
     monkeypatch.setattr(auth, "http_json", lambda *a, **kw: pytest.fail("不应发起网络请求"))
     monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("不应先询问账号"))
-    monkeypatch.setattr(auth, "os", SimpleNamespace(
-        environ=auth.os.environ,
-        path=SimpleNamespace(exists=lambda *a: pytest.fail("不应读取本地凭据")),
-    ))
+    monkeypatch.setattr(
+        auth,
+        "os",
+        SimpleNamespace(
+            environ=auth.os.environ,
+            path=SimpleNamespace(exists=lambda *a: pytest.fail("不应读取本地凭据")),
+        ),
+    )
 
     with pytest.raises(FatalError, match="WPY_APP_SECRET"):
         auth.get_token(interactive=interactive)

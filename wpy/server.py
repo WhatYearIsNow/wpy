@@ -5,6 +5,7 @@
 身份代理到湖底接口，见 lake_actions.py。
 默认只监听 127.0.0.1；公网部署请 --host 0.0.0.0 并设置 WPY_BOARD_TOKEN。
 """
+
 import hashlib
 import hmac
 import http.server
@@ -18,8 +19,17 @@ import urllib.parse
 import webbrowser
 
 from .config import (
-    ASSET_DIR, BOARD_TOKEN, DB_PATH, DEFAULT_HOST, DEFAULT_PORT, HOT_PATH,
-    HTML_PATH, IMG_DIR, LAB_PATH, METRICS_JSON_PATH, PIC_API,
+    ASSET_DIR,
+    BOARD_TOKEN,
+    DB_PATH,
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    HOT_PATH,
+    HTML_PATH,
+    IMG_DIR,
+    LAB_PATH,
+    METRICS_JSON_PATH,
+    PIC_API,
 )
 from . import lake_actions
 from . import ranking
@@ -42,9 +52,9 @@ _FOLLOWS_PATH = os.path.join(os.path.dirname(DB_PATH) or ".", "follows.json")
 
 # 游客屏蔽名单：这些作者的帖子对非管理员不可见
 # （环境变量 WPY_GUEST_BLOCK_UIDS，逗号分隔 uid，写在 deploy/env.board 里）
-GUEST_BLOCK_UIDS = [u.strip() for u in
-                    os.environ.get("WPY_GUEST_BLOCK_UIDS", "").split(",")
-                    if u.strip().isdigit()]
+GUEST_BLOCK_UIDS = [
+    u.strip() for u in os.environ.get("WPY_GUEST_BLOCK_UIDS", "").split(",") if u.strip().isdigit()
+]
 _follows_mu = threading.Lock()
 
 # 登录失败限速：公网上防止对管理员口令的暴力尝试。
@@ -56,8 +66,9 @@ _login_fails_mu = threading.Lock()
 def _client_ip(handler):
     """服务只监听 127.0.0.1，公网请求都经反代进来，XFF 首跳可信。"""
     xff = handler.headers.get("X-Forwarded-For") or ""
-    return (xff.split(",")[0].strip() if xff else "") \
-        or (handler.client_address[0] if handler.client_address else "?")
+    return (xff.split(",")[0].strip() if xff else "") or (
+        handler.client_address[0] if handler.client_address else "?"
+    )
 
 
 def _login_throttled(ip):
@@ -78,10 +89,7 @@ def _login_fail(ip):
         # 旧实现用 clear() 会误删所有 IP 的失败计数，导致暴力破解
         # 防护在长时间运行后形同虚设。
         if len(_login_fails) > 1000:
-            _login_fails = {
-                k: v for k, v in _login_fails.items()
-                if any(now - t < 600 for t in v)
-            }
+            _login_fails = {k: v for k, v in _login_fails.items() if any(now - t < 600 for t in v)}
             _login_fails[ip] = hits
 
 
@@ -115,7 +123,7 @@ def _img_lock(name):
             # 限容：超过上限时清理一半（LRU 近似：字典插入顺序即使用顺序）
             if len(_img_locks) >= _IMG_LOCKS_MAX:
                 # 删除前一半（较旧的锁）
-                to_remove = list(_img_locks.keys())[:_IMG_LOCKS_MAX // 2]
+                to_remove = list(_img_locks.keys())[: _IMG_LOCKS_MAX // 2]
                 for k in to_remove:
                     del _img_locks[k]
             lk = threading.Lock()
@@ -128,7 +136,8 @@ _TRANSPARENT_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
     b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
     b"\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01"
-    b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
+    b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 _LOGIN_PAGE = """<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
@@ -175,6 +184,7 @@ button.admin:hover{background:#2563eb}
 def guess_type(name):
     """按扩展名返回 Content-Type（从 content_type 模块导入）。"""
     from .content_type import guess_type as _gt
+
     return _gt(name)
 
 
@@ -204,16 +214,20 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         return (qs.get("token") or [""])[0]
 
     def _session_sig(self, role):
-        return hmac.new(self.token.encode("utf-8"), role.encode("utf-8"),
-                        hashlib.sha256).hexdigest()[:32]
+        return hmac.new(
+            self.token.encode("utf-8"), role.encode("utf-8"), hashlib.sha256
+        ).hexdigest()[:32]
 
     def _session_cookie(self, role):
         host = self.headers.get("Host", "127.0.0.1")
         # 去掉端口号：浏览器对带端口的 domain 兼容性差
         if ":" in host:
             host = host.rsplit(":", 1)[0]
-        return ("wpy_session=%s.%s; Path=/; HttpOnly; SameSite=Lax; "
-                "Max-Age=2592000; Domain=%s" % (role, self._session_sig(role), host))
+        return "wpy_session=%s.%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000; Domain=%s" % (
+            role,
+            self._session_sig(role),
+            host,
+        )
 
     def _role(self):
         """'admin' / 'guest'；未登录返回 ''。口令为空（本地模式）视为 admin。
@@ -229,8 +243,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         raw = self._cookie("wpy_session")
         if "." in raw:
             role, sig = raw.split(".", 1)
-            if role in ("admin", "guest") and hmac.compare_digest(
-                    sig, self._session_sig(role)):
+            if role in ("admin", "guest") and hmac.compare_digest(sig, self._session_sig(role)):
                 return role
         if self._cookie("wpy_token") == self.token:
             return "admin"
@@ -327,40 +340,42 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 return self._json({"error": str(exc)}, 400)
             except ValueError:
                 return self._json({"error": "limit 必须是数字"}, 400)
-            return self._json({
-                "board": rank_q.get("board") or "all",
-                "boardName": board_name,
-                "dim": rank_q.get("dim") or "view",
-                "window": rank_q.get("window") or "all",
-                "data": result,
-            })
+            return self._json(
+                {
+                    "board": rank_q.get("board") or "all",
+                    "boardName": board_name,
+                    "dim": rank_q.get("dim") or "view",
+                    "window": rank_q.get("window") or "all",
+                    "data": result,
+                }
+            )
 
         if path == "/login":
             if self.token and self._role():
                 return self._redirect("./")
-            err = ("<p class=\"err\">口令不对，再试一次</p>"
-                   if "err=1" in (parsed.query or "") else "")
-            return self._send(_LOGIN_PAGE.replace("{ERR}", err),
-                              "text/html; charset=utf-8")
+            err = '<p class="err">口令不对，再试一次</p>' if "err=1" in (parsed.query or "") else ""
+            return self._send(_LOGIN_PAGE.replace("{ERR}", err), "text/html; charset=utf-8")
 
         if path == "/logout":
-            return self._redirect("login",
-                                  "wpy_session=; Path=/; HttpOnly; Max-Age=0")
+            return self._redirect("login", "wpy_session=; Path=/; HttpOnly; Max-Age=0")
 
         role = self._role()
         if self.token and not role:
             if path in ("/", "/index.html"):
-                return self._send(_LOGIN_PAGE.replace("{ERR}", ""),
-                                  "text/html; charset=utf-8", 401)
+                return self._send(_LOGIN_PAGE.replace("{ERR}", ""), "text/html; charset=utf-8", 401)
             return self._json({"error": "unauthorized"}, 401)
 
         # 首次带 ?token= 进入时种管理员会话，之后刷新不用再带
-        if self.token and self._query_token() == self.token \
-                and path in ("/", "/index.html"):
+        if self.token and self._query_token() == self.token and path in ("/", "/index.html"):
             html = self.read_html().decode("utf-8", errors="replace")
-            return self._send(html, "text/html; charset=utf-8", 200, {
-                "Set-Cookie": self._session_cookie("admin"),
-            })
+            return self._send(
+                html,
+                "text/html; charset=utf-8",
+                200,
+                {
+                    "Set-Cookie": self._session_cookie("admin"),
+                },
+            )
 
         if path in ("/", "/index.html"):
             return self._send(self.read_html(), "text/html; charset=utf-8")
@@ -420,8 +435,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 flim = _to_int(q.get("flim", 150), 150)
                 foff = _to_int(q.get("foff", 0), 0)
                 d = self.board.post_detail(pid, floor_limit=flim, floor_offset=foff)
-                if (d and role != "admin" and GUEST_BLOCK_UIDS
-                        and str(d.get("uid") or "") in GUEST_BLOCK_UIDS):
+                if (
+                    d
+                    and role != "admin"
+                    and GUEST_BLOCK_UIDS
+                    and str(d.get("uid") or "") in GUEST_BLOCK_UIDS
+                ):
                     return self._json({"error": "not found"}, 404)
                 return self._json(d) if d else self._json({"error": "not found"}, 404)
             if path == "/api/user":
@@ -430,8 +449,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if path == "/api/topusers":
                 return self._json(self.board.top_users())
             if path == "/api/users":
-                ids = [x for x in (q.get("uids", "") or "").split(",")
-                       if x.strip().isdigit()]
+                ids = [x for x in (q.get("uids", "") or "").split(",") if x.strip().isdigit()]
                 return self._json(self.board.users([int(x) for x in ids[:200]]))
         except Exception as e:
             return self._json({"error": str(e)[:200]}, 500)
@@ -455,14 +473,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 return self._json({"error": "失败次数过多，请 10 分钟后再试"}, 429)
             if form.get("mode") == "guest":
                 # 游客会话 + 顺手清掉旧版口令 cookie，避免被判成管理员
-                return self._redirect("./", [
-                    self._session_cookie("guest"),
-                    "wpy_token=; Path=/; HttpOnly; Max-Age=0",
-                ])
+                return self._redirect(
+                    "./",
+                    [
+                        self._session_cookie("guest"),
+                        "wpy_token=; Path=/; HttpOnly; Max-Age=0",
+                    ],
+                )
             password = form.get("password") or ""
             if password and hmac.compare_digest(password, self.token):
                 with _login_fails_mu:
-                    _login_fails.pop(ip, None)   # 成功即清空失败计数
+                    _login_fails.pop(ip, None)  # 成功即清空失败计数
                 return self._redirect("./", self._session_cookie("admin"))
             if password:
                 _login_fail(ip)
@@ -488,24 +509,24 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         # ---- 湖底动作代理（服务端单一账号身份）----
         actions = {
             # 键: (湖底路径,     允许角色, 允许字段)
-            "fav":       ("post/fav",    "any",   ("post_id", "op")),
-            "like":      ("post/like",   "admin", ("post_id", "op")),
+            "fav": ("post/fav", "any", ("post_id", "op")),
+            "like": ("post/like", "admin", ("post_id", "op")),
             "floor_like": ("floor/like", "admin", ("floor_id", "op")),
             # 评论两个接口（对齐 App 源码 feedback_service.dart）：
             #   顶层评论 POST floor       (post_id + content + images)
             #   楼中楼   POST floor/reply (reply_to_floor + content + images)
             # images 是必须携带的字段（App 恒发送，空值也带），缺了湖底直接 500；
             # post/reply 是官方帖专用，对普通帖用它会返回「无权限回复」
-            "reply":       ("floor",       "admin", ("post_id", "content",
-                                                     "images")),
-            "floor_reply": ("floor/reply", "admin", ("reply_to_floor",
-                                                     "content", "images")),
-            "post":      ("post",        "admin", ("type", "title", "content",
-                                                   "campus", "department_id",
-                                                   "tag_id", "masked")),
+            "reply": ("floor", "admin", ("post_id", "content", "images")),
+            "floor_reply": ("floor/reply", "admin", ("reply_to_floor", "content", "images")),
+            "post": (
+                "post",
+                "admin",
+                ("type", "title", "content", "campus", "department_id", "tag_id", "masked"),
+            ),
         }
         if path.startswith("/api/wpy/"):
-            key = path[len("/api/wpy/"):]
+            key = path[len("/api/wpy/") :]
             if key not in actions:
                 return self._json({"error": "not found"}, 404)
             wpath, need, fields = actions[key]
@@ -523,8 +544,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     # 用户再点一次就会撞上湖底对重复收藏的报错
                     self._sync_fav_flag(form)
                 return self._json({"ok": 1, "data": r.get("data")})
-            return self._json({"ok": 0,
-                               "error": str(r.get("msg") or r)[:200]}, 502)
+            return self._json({"ok": 0, "error": str(r.get("msg") or r)[:200]}, 502)
 
         return self._json({"error": "not found"}, 404)
 
@@ -536,8 +556,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             # 看板连接被 PRAGMA query_only 锁成只读，这里开短连接单独写
             con = sqlite3.connect(DB_PATH, timeout=30)
             try:
-                con.execute('UPDATE posts SET "是我的收藏"=? WHERE id=?',
-                            (1 if form.get("op") == "1" else 0, int(pid)))
+                con.execute(
+                    'UPDATE posts SET "是我的收藏"=? WHERE id=?',
+                    (1 if form.get("op") == "1" else 0, int(pid)),
+                )
                 con.commit()
             finally:
                 con.close()
@@ -600,8 +622,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(data, ctype, 200, cache)
             except Exception as e:
                 _log("  图片 %s 获取失败：%s" % (name, str(e)[:70]))
-                return self._send(_TRANSPARENT_PNG, "image/png", 200,
-                                  {"Cache-Control": "public, max-age=60"})
+                return self._send(
+                    _TRANSPARENT_PNG, "image/png", 200, {"Cache-Control": "public, max-age=60"}
+                )
 
 
 class Server(socketserver.ThreadingTCPServer):
@@ -612,6 +635,7 @@ class Server(socketserver.ThreadingTCPServer):
 def serve(host=None, port=None, open_browser=None, token=None, db_path=None):
     _ensure_utf8_stdio()
     from .config import DB_PATH as _DB
+
     host = host if host is not None else DEFAULT_HOST
     port = port if port is not None else DEFAULT_PORT
     token = BOARD_TOKEN if token is None else token
@@ -620,9 +644,11 @@ def serve(host=None, port=None, open_browser=None, token=None, db_path=None):
 
     if not os.path.exists(HTML_PATH):
         from .ui import build_html
+
         build_html(HTML_PATH)
     if not os.path.exists(db_path or _DB) or os.path.getsize(db_path or _DB) == 0:
         from .db import open_db
+
         conn = open_db(db_path or _DB)
         conn.close()
         print("已初始化空数据库：%s" % (db_path or _DB))

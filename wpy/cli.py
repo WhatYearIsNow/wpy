@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """命令行入口：python -m wpy <cmd> 或 python crawl.py <cmd>。"""
+
 import sys
 
 
@@ -24,9 +25,11 @@ def main(argv=None):
     _ensure_utf8_stdio()
     # 启动时配置验证（不阻塞，只打印警告）
     from .config_models import validate_all, log_warnings
+
     log_warnings(validate_all())
     # 延迟导入，--help 更快
     from . import crawler
+
     return crawler.main(argv)
 
 

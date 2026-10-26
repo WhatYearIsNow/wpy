@@ -6,6 +6,7 @@
 
 CSS/JS 模板已拆分到 ui_templates/ 目录，便于独立编辑。
 """
+
 import time
 
 # CSS/JS 从 ui_templates 包导入（文件已拆分，此处为兼容层）
@@ -14,7 +15,9 @@ from .ui_templates import CSS, JS  # noqa: F401  供外部导入兼容
 
 def js_json(obj):
     import json
+
     return json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
+
 
 HTML_SHELL = """<!DOCTYPE html>
 <html lang="zh-CN">
@@ -129,21 +132,30 @@ HTML_SHELL = """<!DOCTYPE html>
 """
 
 TYPE_COLORS = {
-    1: "#5B8FF9", 2: "#5AD8A6", 3: "#F6BD16", 4: "#E8684A",
-    5: "#6F5EF9", 6: "#6DC8EC", 10: "#FF9D4D", 13: "#269A99",
+    1: "#5B8FF9",
+    2: "#5AD8A6",
+    3: "#F6BD16",
+    4: "#E8684A",
+    5: "#6F5EF9",
+    6: "#6DC8EC",
+    10: "#FF9D4D",
+    13: "#269A99",
 }
 DEFAULT_COLOR = "#979797"
 
 
 def build_html(out_path, gen_date=None):
     gen_date = gen_date or time.strftime("%Y-%m-%d %H:%M")
-    js_s = (JS.replace("__COLORS__", js_json(TYPE_COLORS))
-              .replace("__DEFAULT_COLOR__", DEFAULT_COLOR))
-    doc = (HTML_SHELL.replace("__CSS__", CSS)
-                     .replace("__JS__", js_s)
-                     .replace("__NPOST__", "0")
-                     .replace("__NCMT__", "0")
-                     .replace("__GENDATE__", gen_date))
+    js_s = JS.replace("__COLORS__", js_json(TYPE_COLORS)).replace(
+        "__DEFAULT_COLOR__", DEFAULT_COLOR
+    )
+    doc = (
+        HTML_SHELL.replace("__CSS__", CSS)
+        .replace("__JS__", js_s)
+        .replace("__NPOST__", "0")
+        .replace("__NCMT__", "0")
+        .replace("__GENDATE__", gen_date)
+    )
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(doc)
     return len(doc.encode("utf-8"))
@@ -152,6 +164,7 @@ def build_html(out_path, gen_date=None):
 def build_from_db(db_path=None, out_path=None, *args, **kwargs):
     """兼容旧入口：只生成服务版空壳，不读库。"""
     from .config import HTML_PATH as _HTML
+
     path = out_path or _HTML
     size = build_html(path)
     print("已生成 %s：%.1f KB（服务版空壳）" % (path, size / 1024))

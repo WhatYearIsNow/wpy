@@ -1,4 +1,5 @@
 """发布导出必须排除私有路径，并在验证失败时保留目标目录。"""
+
 import importlib.util
 from pathlib import Path
 
@@ -28,18 +29,35 @@ def test_export_copies_source_but_excludes_runtime_and_credentials(source_export
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("public fixture\n")
-    for name in (".git/config", "data/sitewide.db", "build/hot.html", "logs/run.txt",
-                 ".tju_key", "deploy/env.update", "deploy/.env", "wpy/__pycache__/config.pyc",
-                 "docs/.backup/old.md", "pages/exp_add.json", "pages/exp_refined.json",
-                 "pages/exp_search.json"):
+    for name in (
+        ".git/config",
+        "data/sitewide.db",
+        "build/hot.html",
+        "logs/run.txt",
+        ".tju_key",
+        "deploy/env.update",
+        "deploy/.env",
+        "wpy/__pycache__/config.pyc",
+        "docs/.backup/old.md",
+        "pages/exp_add.json",
+        "pages/exp_refined.json",
+        "pages/exp_search.json",
+    ):
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("private fixture\n")
 
     assert module.export(output) == 7
     files = {p.relative_to(output).as_posix() for p in output.rglob("*") if p.is_file()}
-    assert files == {"LICENSE", "README.md", "pyproject.toml", "scripts/check_public_source.py",
-                     "wpy/__init__.py", "pages/content.example.json", "deploy/env.update.example"}
+    assert files == {
+        "LICENSE",
+        "README.md",
+        "pyproject.toml",
+        "scripts/check_public_source.py",
+        "wpy/__init__.py",
+        "pages/content.example.json",
+        "deploy/env.update.example",
+    }
     for name in ("exp_add.json", "exp_refined.json", "exp_search.json"):
         assert (root / "pages" / name).read_text() == "private fixture\n"
         assert not (output / "pages" / name).exists()

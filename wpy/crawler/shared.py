@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """阶段共用：板块名、过滤、确认计划、解析与 worker 池。"""
+
 from __future__ import annotations
 
 import re
@@ -9,6 +10,7 @@ from ..config import COMMENT_PAGE_SIZE, DEFAULT_TYPE_NAMES, RECOMMEND_TYPE
 from ..db import _int
 from ..http import LIMITER, api_get, FuseTripped
 from ..runlog import log
+
 
 def map_type_names(token):
     """type id -> 板块名。
@@ -56,9 +58,10 @@ def only_recommend(type_names):
 def warn_if_only_recommend(type_names, where=""):
     """只选了精华时给出人话提示；返回 True 表示确实只有精华。"""
     if only_recommend(type_names):
-        log("提示：你只选了「精华(0)」。精华不是板块，不能在板块列表里遍历；"
-            "它会在「%s」这一步单独抓成精华集合。"
-            % (where or "抓取精华集合"))
+        log(
+            "提示：你只选了「精华(0)」。精华不是板块，不能在板块列表里遍历；"
+            "它会在「%s」这一步单独抓成精华集合。" % (where or "抓取精华集合")
+        )
         return True
     return False
 
@@ -72,9 +75,10 @@ def warn_unknown_types(requested, type_names, where=""):
     if not unknown:
         return []
     avail = "、".join("%s=%s" % (k, type_names[k]) for k in sorted(type_names))
-    log("警告：%s无法识别的板块 ID：%s"
-        % (("%s：" % where) if where else "",
-           ",".join(str(t) for t in unknown)))
+    log(
+        "警告：%s无法识别的板块 ID：%s"
+        % (("%s：" % where) if where else "", ",".join(str(t) for t in unknown))
+    )
     log("当前可用板块：%s" % (avail or "（空）"))
     return unknown
 
@@ -95,26 +99,26 @@ def estimate_work(conn, types, since_date, limit):
     if types:
         where.append('"板块ID" IN (%s)' % ",".join("?" * len(types)))
         params += list(types)
-    n_body = conn.execute('SELECT COUNT(*) FROM posts WHERE %s'
-                          % " AND ".join(where), params).fetchone()[0]
+    n_body = conn.execute(
+        "SELECT COUNT(*) FROM posts WHERE %s" % " AND ".join(where), params
+    ).fetchone()[0]
 
     where2, params2 = ['"评论已抓"=0 AND "正文已补">=0'], []
     if types:
         where2.append('"板块ID" IN (%s)' % ",".join("?" * len(types)))
         params2 += list(types)
-    rows = conn.execute('SELECT "评论数" FROM posts WHERE %s'
-                        % " AND ".join(where2), params2).fetchall()
+    rows = conn.execute(
+        'SELECT "评论数" FROM posts WHERE %s' % " AND ".join(where2), params2
+    ).fetchall()
     n_cmt = len(rows)
     # 评论每页 COMMENT_PAGE_SIZE 楼，至少 1 页
-    cmt_pages = sum(
-        max(1, (_int(r[0]) + COMMENT_PAGE_SIZE - 1) // COMMENT_PAGE_SIZE)
-        for r in rows)
+    cmt_pages = sum(max(1, (_int(r[0]) + COMMENT_PAGE_SIZE - 1) // COMMENT_PAGE_SIZE) for r in rows)
     if limit:
         n_body = min(n_body, limit)
         n_cmt = min(n_cmt, limit)
         cmt_pages = min(cmt_pages, limit)
 
-    reqs = n_body + cmt_pages + 30      # 预留列表/精华/我的帖子等固定开销
+    reqs = n_body + cmt_pages + 30  # 预留列表/精华/我的帖子等固定开销
     qps = LIMITER.target if LIMITER.target > 0 else 1.0
     return n_body, n_cmt, reqs, reqs / qps
 
@@ -134,8 +138,7 @@ def confirm_plan(conn, types, type_names, since_date, limit, auto_yes=False):
     auto_yes=True（非交互环境）时跳过等待。
     """
     n_body, n_cmt, reqs, secs = estimate_work(conn, types, since_date, limit)
-    names = ("、".join(type_names[t] for t in sorted(types))
-             if types else "全部板块")
+    names = "、".join(type_names[t] for t in sorted(types)) if types else "全部板块"
     pages = max(0, reqs - n_body - 30)
     print()
     print("=" * 60)
@@ -206,7 +209,7 @@ def build_post_filter(args, stage):
     ids = getattr(args, "ids", None)
     # ids 与 types 取交集：两边都限制时，只处理同时满足的
     if ids:
-        cond.append('id IN (%s)' % ",".join(str(int(i)) for i in ids))
+        cond.append("id IN (%s)" % ",".join(str(int(i)) for i in ids))
     if types:
         cond.append('"板块ID" IN (%s)' % ",".join(str(int(t)) for t in types))
     sd = getattr(args, "since_date", "")
@@ -221,6 +224,7 @@ def _parse_since_date(s):
         return ""
     s = s.strip()
     import re
+
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", s):
         log("日期格式不对（应为 2026-09-01 这样），忽略该条件：" + s)
         return ""
@@ -272,6 +276,7 @@ def _parse_ids(s):
     if not s:
         return []
     import re
+
     ids = []
     # 先取出所有口令形式的 id，并把这些片段从文本里移除
     rest = s
@@ -290,4 +295,3 @@ def _parse_ids(s):
             seen.add(i)
             out.append(i)
     return out
-

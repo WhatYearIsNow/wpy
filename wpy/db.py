@@ -4,21 +4,36 @@
 抓取阶段只负责「取数据 → 调用 db 保存」；不要在这里发网络请求。
 禁止 DROP 业务表；迁移只做增量补列/改名，保留已有数据。
 """
+
 import json
 import sqlite3
 import time
 
 from .config import (
-    DB_PATH, DEFAULT_TYPE_NAMES, RECOMMEND_TYPE,
+    DB_PATH,
+    DEFAULT_TYPE_NAMES,
+    RECOMMEND_TYPE,
 )
 from .runlog import log
 
 __all__ = [
-    "POST_COLUMNS", "FLOOR_COLUMNS", "OFFICIAL_COLUMNS", "IMAGE_COLUMNS",
-    "POST_COL_NAMES", "POST_BASE_NAMES", "open_db", "save_posts",
-    "save_floors", "save_official_replies", "mark_posts_flag",
-    "mark_essence_ids", "ensure_type_row", "next_page", "mark_status",
-    "record_pagination_event", "status_summary",
+    "POST_COLUMNS",
+    "FLOOR_COLUMNS",
+    "OFFICIAL_COLUMNS",
+    "IMAGE_COLUMNS",
+    "POST_COL_NAMES",
+    "POST_BASE_NAMES",
+    "open_db",
+    "save_posts",
+    "save_floors",
+    "save_official_replies",
+    "mark_posts_flag",
+    "mark_essence_ids",
+    "ensure_type_row",
+    "next_page",
+    "mark_status",
+    "record_pagination_event",
+    "status_summary",
 ]
 
 
@@ -89,8 +104,8 @@ OFFICIAL_COLUMNS = [
 
 IMAGE_COLUMNS = [
     ("文件名", "TEXT PRIMARY KEY"),
-    ("来源", "TEXT"),        # post / floor
-    ("对象ID", "INTEGER"),   # 帖子 id 或楼层 id
+    ("来源", "TEXT"),  # post / floor
+    ("对象ID", "INTEGER"),  # 帖子 id 或楼层 id
     ("已有本地", "INTEGER DEFAULT 0"),
     ("字节数", "INTEGER DEFAULT 0"),
     ("错误", "TEXT"),
@@ -103,9 +118,11 @@ POST_COL_NAMES = [n for n, _ in POST_COLUMNS]
 #   集合类：是我的帖子 / 是我的收藏（由对应的抓取阶段打标记）
 #   集合类：精华（由 crawl_essence 打标记；列表接口通常不返回该字段，
 #           若参与写入会被反复重置为 0）
-POST_BASE_NAMES = [n for n, _ in POST_COLUMNS
-                   if n not in ("正文已补", "评论已抓", "评论页数", "图片已存",
-                                "是我的帖子", "是我的收藏", "精华")]
+POST_BASE_NAMES = [
+    n
+    for n, _ in POST_COLUMNS
+    if n not in ("正文已补", "评论已抓", "评论页数", "图片已存", "是我的帖子", "是我的收藏", "精华")
+]
 
 
 def _int(v):
@@ -170,14 +187,24 @@ def open_db(path=None):
     _migrate(conn, "official_replies", OFFICIAL_COLUMNS)
     _migrate(conn, "images", IMAGE_COLUMNS)
     # scrape_progress 也要迁移：老库没有 last_min_id/last_max_id 两列
-    _migrate(conn, "scrape_progress", [
-        ("type", "INTEGER PRIMARY KEY"), ("name", "TEXT"),
-        ("page_size", "INTEGER"), ("last_page", "INTEGER DEFAULT 0"),
-        ("total", "INTEGER"), ("total_pages", "INTEGER"),
-        ("fetched", "INTEGER DEFAULT 0"), ("last_error", "TEXT"),
-        ("updated_at", "TEXT"), ("status", "TEXT"),
-        ("last_min_id", "INTEGER"), ("last_max_id", "INTEGER"),
-    ])
+    _migrate(
+        conn,
+        "scrape_progress",
+        [
+            ("type", "INTEGER PRIMARY KEY"),
+            ("name", "TEXT"),
+            ("page_size", "INTEGER"),
+            ("last_page", "INTEGER DEFAULT 0"),
+            ("total", "INTEGER"),
+            ("total_pages", "INTEGER"),
+            ("fetched", "INTEGER DEFAULT 0"),
+            ("last_error", "TEXT"),
+            ("updated_at", "TEXT"),
+            ("status", "TEXT"),
+            ("last_min_id", "INTEGER"),
+            ("last_max_id", "INTEGER"),
+        ],
+    )
     _fix_recommend_rows(conn)
     conn.execute('CREATE INDEX IF NOT EXISTS idx_floors_post ON floors("帖子ID")')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_floors_parent ON floors("父楼ID")')
@@ -216,11 +243,10 @@ def _fix_recommend_rows(conn):
     """
     try:
         row = conn.execute(
-            'SELECT status FROM scrape_progress WHERE "type"=?',
-            (RECOMMEND_TYPE,)).fetchone()
+            'SELECT status FROM scrape_progress WHERE "type"=?', (RECOMMEND_TYPE,)
+        ).fetchone()
         if row:
-            conn.execute('DELETE FROM scrape_progress WHERE "type"=?',
-                         (RECOMMEND_TYPE,))
+            conn.execute('DELETE FROM scrape_progress WHERE "type"=?', (RECOMMEND_TYPE,))
             log("已清理历史遗留的「精华(0)」假板块进度行（推荐位不按板块抓）")
     except sqlite3.Error:
         pass
@@ -238,13 +264,13 @@ def _rename_columns(conn, table, renames):
         if old not in have:
             continue
         if new not in have:
-            conn.execute('ALTER TABLE "%s" RENAME COLUMN "%s" TO "%s"'
-                         % (table, old, new))
+            conn.execute('ALTER TABLE "%s" RENAME COLUMN "%s" TO "%s"' % (table, old, new))
         else:
             # 目标列已存在：搬运数据后删除旧列（只搬新列为空的行）
-            conn.execute('UPDATE "%s" SET "%s"="%s" WHERE ("%s" IS NULL OR "%s"=\'\')'
-                         ' AND "%s" IS NOT NULL AND "%s"<>\'\''
-                         % (table, new, old, new, new, old, old))
+            conn.execute(
+                'UPDATE "%s" SET "%s"="%s" WHERE ("%s" IS NULL OR "%s"=\'\')'
+                ' AND "%s" IS NOT NULL AND "%s"<>\'\'' % (table, new, old, new, new, old, old)
+            )
             conn.execute('ALTER TABLE "%s" DROP COLUMN "%s"' % (table, old))
 
 
@@ -255,17 +281,29 @@ def post_tuple(it):
     ui = it.get("user_info") or {}
     imgs = it.get("image_urls") or []
     return (
-        _int(it.get("id")), _int(it.get("uid")),
-        it.get("title") or "", it.get("content") or "",
-        it.get("created_at") or "", it.get("nickname") or "",
-        _int(ui.get("level")), ui.get("avatar") or "",
-        _int(it.get("type")), dep.get("name") or "",
-        tag.get("name") or "", _int(tag.get("id")) if tag.get("id") else None,
-        _int(it.get("like_count")), _int(it.get("fav_count")),
-        _int(it.get("comment_count")), _int(it.get("visit_count")),
-        _int(it.get("rating")), _int(it.get("campus")), _int(it.get("variant")),
-        "是" if it.get("solved") else "否", it.get("e_tag") or "",
-        len(imgs), json.dumps(imgs, ensure_ascii=False),
+        _int(it.get("id")),
+        _int(it.get("uid")),
+        it.get("title") or "",
+        it.get("content") or "",
+        it.get("created_at") or "",
+        it.get("nickname") or "",
+        _int(ui.get("level")),
+        ui.get("avatar") or "",
+        _int(it.get("type")),
+        dep.get("name") or "",
+        tag.get("name") or "",
+        _int(tag.get("id")) if tag.get("id") else None,
+        _int(it.get("like_count")),
+        _int(it.get("fav_count")),
+        _int(it.get("comment_count")),
+        _int(it.get("visit_count")),
+        _int(it.get("rating")),
+        _int(it.get("campus")),
+        _int(it.get("variant")),
+        "是" if it.get("solved") else "否",
+        it.get("e_tag") or "",
+        len(imgs),
+        json.dumps(imgs, ensure_ascii=False),
     )
 
 
@@ -294,12 +332,21 @@ def is_essence(it):
 def floor_tuple(f, post_id, parent_id=0):
     ui = f.get("user_info") or {}
     return (
-        _int(f.get("id")), post_id, parent_id, _int(f.get("uid")),
-        f.get("nickname") or "", _int(ui.get("level")), ui.get("avatar") or "",
-        f.get("content") or "", f.get("created_at") or "",
-        f.get("reply_to_name") or "", _int(f.get("like_count")),
-        _int(f.get("value")), _int(f.get("sub_floor_cnt")),
-        f.get("image_url") or "", 1 if f.get("is_owner") else 0,
+        _int(f.get("id")),
+        post_id,
+        parent_id,
+        _int(f.get("uid")),
+        f.get("nickname") or "",
+        _int(ui.get("level")),
+        ui.get("avatar") or "",
+        f.get("content") or "",
+        f.get("created_at") or "",
+        f.get("reply_to_name") or "",
+        _int(f.get("like_count")),
+        _int(f.get("value")),
+        _int(f.get("sub_floor_cnt")),
+        f.get("image_url") or "",
+        1 if f.get("is_owner") else 0,
     )
 
 
@@ -324,53 +371,74 @@ def save_posts(conn, items):
     """
     names = ",".join('"%s"' % n for n in POST_BASE_NAMES)
     ph = ",".join("?" * len(POST_BASE_NAMES))
-    updates = ",".join('"%s"=excluded."%s"' % (n, n)
-                       for n in POST_BASE_NAMES if n != "id")
-    sql = ('INSERT INTO posts (%s) VALUES (%s) '
-           'ON CONFLICT("id") DO UPDATE SET %s' % (names, ph, updates))
+    updates = ",".join('"%s"=excluded."%s"' % (n, n) for n in POST_BASE_NAMES if n != "id")
+    sql = 'INSERT INTO posts (%s) VALUES (%s) ON CONFLICT("id") DO UPDATE SET %s' % (
+        names,
+        ph,
+        updates,
+    )
     with conn:
         conn.executemany(sql, [post_tuple(it) for it in items])
 
 
 def save_floors(conn, tuples):
     conn.executemany(
-        'INSERT OR REPLACE INTO floors (%s) VALUES (%s)'
-        % (",".join('"%s"' % n for n, _ in FLOOR_COLUMNS),
-           ",".join("?" * len(FLOOR_COLUMNS))), tuples)
+        "INSERT OR REPLACE INTO floors (%s) VALUES (%s)"
+        % (",".join('"%s"' % n for n, _ in FLOOR_COLUMNS), ",".join("?" * len(FLOOR_COLUMNS))),
+        tuples,
+    )
 
 
 def save_official_replies(conn, rows):
     conn.executemany(
-        'INSERT OR REPLACE INTO official_replies (%s) VALUES (%s)'
-        % (",".join('"%s"' % n for n, _ in OFFICIAL_COLUMNS),
-           ",".join("?" * len(OFFICIAL_COLUMNS))), rows)
+        "INSERT OR REPLACE INTO official_replies (%s) VALUES (%s)"
+        % (
+            ",".join('"%s"' % n for n, _ in OFFICIAL_COLUMNS),
+            ",".join("?" * len(OFFICIAL_COLUMNS)),
+        ),
+        rows,
+    )
 
 
 def official_row(f, post_id):
     ui = f.get("user_info") or {}
-    return (_int(f.get("id")), post_id, _int(f.get("uid")),
-            f.get("nickname") or "", ui.get("avatar") or "",
-            f.get("content") or "", f.get("created_at") or "",
-            _int(f.get("like_count")), f.get("image_url") or "")
+    return (
+        _int(f.get("id")),
+        post_id,
+        _int(f.get("uid")),
+        f.get("nickname") or "",
+        ui.get("avatar") or "",
+        f.get("content") or "",
+        f.get("created_at") or "",
+        _int(f.get("like_count")),
+        f.get("image_url") or "",
+    )
 
 
 def mark_posts_flag(conn, ids, column, value=1):
     """给帖子打集合/进度标记。column 必须是白名单列名。"""
-    if column not in ("是我的帖子", "是我的收藏", "精华", "正文已补", "评论已抓",
-                      "评论页数", "图片已存"):
+    if column not in (
+        "是我的帖子",
+        "是我的收藏",
+        "精华",
+        "正文已补",
+        "评论已抓",
+        "评论页数",
+        "图片已存",
+    ):
         raise ValueError("不允许更新的列：" + column)
     if not ids:
         return 0
     ph = ",".join("?" * len(ids))
     with conn:
-        cur = conn.execute('UPDATE posts SET "%s"=? WHERE id IN (%s)'
-                           % (column, ph), tuple([value] + list(ids)))
+        cur = conn.execute(
+            'UPDATE posts SET "%s"=? WHERE id IN (%s)' % (column, ph), tuple([value] + list(ids))
+        )
     return cur.rowcount
 
 
 def count_posts_flag(conn, column, value=1):
-    return conn.execute('SELECT COUNT(*) FROM posts WHERE "%s"=?'
-                        % column, (value,)).fetchone()[0]
+    return conn.execute('SELECT COUNT(*) FROM posts WHERE "%s"=?' % column, (value,)).fetchone()[0]
 
 
 def mark_essence_ids(conn, ids):
@@ -379,29 +447,31 @@ def mark_essence_ids(conn, ids):
         return 0, 0
     with conn:
         conn.executemany(
-            'INSERT OR IGNORE INTO essence_ids (post_id, marked_at, source) '
-            'VALUES (?, ?, ?)',
-            [(i, time.strftime("%Y-%m-%d %H:%M:%S"), "recommend") for i in ids])
+            "INSERT OR IGNORE INTO essence_ids (post_id, marked_at, source) VALUES (?, ?, ?)",
+            [(i, time.strftime("%Y-%m-%d %H:%M:%S"), "recommend") for i in ids],
+        )
         # 同步 posts 表的精华列。
         # 注意要按整个 essence_ids 集合刷新，而不是只刷本轮的 ids：
         # 精华集合是分批抓的，早先抓到的 id 对应的帖子可能后来才入库，
         # 只刷本轮会让 posts.精华 与 essence_ids 长期不一致（看板读数打架）。
-        conn.execute('UPDATE posts SET "精华"=1 WHERE id IN '
-                     '(SELECT post_id FROM essence_ids)')
+        conn.execute('UPDATE posts SET "精华"=1 WHERE id IN (SELECT post_id FROM essence_ids)')
     total = conn.execute("SELECT COUNT(*) FROM essence_ids").fetchone()[0]
     matched = conn.execute('SELECT COUNT(*) FROM posts WHERE "精华"=1').fetchone()[0]
     return total, matched
 
 
 def ensure_type_row(conn, tid, name, page_size):
-    conn.execute("INSERT OR IGNORE INTO scrape_progress "
-                 "(type, name, page_size, status) VALUES (?,?,?,'pending')",
-                 (tid, name, page_size))
+    conn.execute(
+        "INSERT OR IGNORE INTO scrape_progress "
+        "(type, name, page_size, status) VALUES (?,?,?,'pending')",
+        (tid, name, page_size),
+    )
 
 
 def next_page(conn, tid):
-    row = conn.execute('SELECT last_page, total_pages, status FROM '
-                       'scrape_progress WHERE "type"=?', (tid,)).fetchone()
+    row = conn.execute(
+        'SELECT last_page, total_pages, status FROM scrape_progress WHERE "type"=?', (tid,)
+    ).fetchone()
     if row is None:
         return 1, None
     last_page, total_pages, status = row
@@ -412,9 +482,10 @@ def next_page(conn, tid):
 
 def mark_status(conn, tid, status, error=None):
     with conn:
-        conn.execute('UPDATE scrape_progress SET status=?, last_error=?, '
-                     'updated_at=? WHERE "type"=?',
-                     (status, error, time.strftime("%Y-%m-%d %H:%M:%S"), tid))
+        conn.execute(
+            'UPDATE scrape_progress SET status=?, last_error=?, updated_at=? WHERE "type"=?',
+            (status, error, time.strftime("%Y-%m-%d %H:%M:%S"), tid),
+        )
 
 
 def record_pagination_event(conn, tid, page, kind, detail):
@@ -423,9 +494,9 @@ def record_pagination_event(conn, tid, page, kind, detail):
         with conn:
             conn.execute(
                 'INSERT INTO pagination_events ("type", page, kind, detail, '
-                'created_at) VALUES (?,?,?,?,?)',
-                (tid, page, kind, detail[:300],
-                 time.strftime("%Y-%m-%d %H:%M:%S")))
+                "created_at) VALUES (?,?,?,?,?)",
+                (tid, page, kind, detail[:300], time.strftime("%Y-%m-%d %H:%M:%S")),
+            )
     except sqlite3.Error:
         pass
 
@@ -433,31 +504,32 @@ def record_pagination_event(conn, tid, page, kind, detail):
 def update_scrape_page(conn, tid, page, total, total_pages, wrote_n):
     with conn:
         conn.execute(
-            'UPDATE scrape_progress SET last_page=?, total=COALESCE(?,total)'
+            "UPDATE scrape_progress SET last_page=?, total=COALESCE(?,total)"
             ', total_pages=?, fetched=fetched+?, updated_at=?, status="running"'
             ' WHERE "type"=?',
-            (page, total, total_pages, wrote_n,
-             time.strftime("%Y-%m-%d %H:%M:%S"), tid))
+            (page, total, total_pages, wrote_n, time.strftime("%Y-%m-%d %H:%M:%S"), tid),
+        )
 
 
 def list_progress_rows(conn):
     return conn.execute(
         'SELECT "type",name,total_pages,last_page,'
-        'fetched,status,last_error FROM scrape_progress '
-        'ORDER BY "type"').fetchall()
+        "fetched,status,last_error FROM scrape_progress "
+        'ORDER BY "type"'
+    ).fetchall()
 
 
 def list_done_boards(conn):
     return conn.execute(
         'SELECT "type", name, last_page, fetched, status FROM scrape_progress '
-        'WHERE status="done" ORDER BY "type"').fetchall()
+        'WHERE status="done" ORDER BY "type"'
+    ).fetchall()
 
 
 def reopen_done_boards(conn):
     """把 done 板块标回 pending，返回本次打开的行数。"""
     with conn:
-        cur = conn.execute('UPDATE scrape_progress SET status="pending" '
-                           'WHERE status="done"')
+        cur = conn.execute('UPDATE scrape_progress SET status="pending" WHERE status="done"')
     return cur.rowcount
 
 
@@ -468,8 +540,7 @@ def board_display_names(conn):
     """
     names = dict(DEFAULT_TYPE_NAMES)
     try:
-        for tid, nm in conn.execute(
-                'SELECT "type", name FROM scrape_progress'):
+        for tid, nm in conn.execute('SELECT "type", name FROM scrape_progress'):
             if nm and _int(tid) not in names:
                 names[_int(tid)] = nm
     except sqlite3.Error:
@@ -494,9 +565,15 @@ def update_post_body(conn, pid, content, imgs, img_n, uid=None, nickname=None):
             '"uid"=COALESCE(NULLIF(?,\'\'), "uid"), '
             '"作者"=COALESCE(NULLIF(?,\'\'), "作者"), '
             '"正文已补"=1 WHERE id=?',
-            (content, json.dumps(imgs, ensure_ascii=False), img_n,
-             _int(uid) or "",      # uid=0/缺失时保留库里已有值，避免被清成 0
-             nickname or "", pid))
+            (
+                content,
+                json.dumps(imgs, ensure_ascii=False),
+                img_n,
+                _int(uid) or "",  # uid=0/缺失时保留库里已有值，避免被清成 0
+                nickname or "",
+                pid,
+            ),
+        )
 
 
 def mark_post_body_failed(conn, pid):
@@ -528,14 +605,16 @@ def reset_incomplete_comments(conn, types=None, ids=None, limit=0):
     types = [int(t) for t in (types or [])]
     ids = [int(i) for i in (ids or [])]
     if not types and not ids and limit:
-        log("补抓准备：本轮带 --limit 且未指定 --types/--ids，"
-            "跳过全局评论 repair，避免先重置全库再只处理 %d 条" % limit)
+        log(
+            "补抓准备：本轮带 --limit 且未指定 --types/--ids，"
+            "跳过全局评论 repair，避免先重置全库再只处理 %d 条" % limit
+        )
         return 0
 
     scope_sql = ""
     scope_params = []
     if ids:
-        scope_sql += ' AND id IN (%s)' % ",".join("?" * len(ids))
+        scope_sql += " AND id IN (%s)" % ",".join("?" * len(ids))
         scope_params.extend(ids)
     if types:
         scope_sql += ' AND "板块ID" IN (%s)' % ",".join("?" * len(types))
@@ -550,18 +629,23 @@ def reset_incomplete_comments(conn, types=None, ids=None, limit=0):
     n_gap = conn.execute(
         'UPDATE posts SET "评论已抓"=0 WHERE "评论已抓"=1 AND "评论数">0 '
         'AND (SELECT COUNT(*) FROM floors f WHERE f."帖子ID"=posts.id) '
-        '< "评论数"' + scope_sql, scope_params).rowcount
+        '< "评论数"' + scope_sql,
+        scope_params,
+    ).rowcount
     n_sub = conn.execute(
         'UPDATE posts SET "评论已抓"=0 WHERE "评论已抓"=1 AND id IN ('
         '  SELECT DISTINCT f."帖子ID" FROM floors f '
         '  WHERE f."子楼数">0 AND f."子楼数">('
         '    SELECT COUNT(*) FROM floors c WHERE c."父楼ID"=f.id))' + scope_sql,
-        scope_params).rowcount
+        scope_params,
+    ).rowcount
     n = max(n_gap, n_sub)
     if n:
         conn.commit()
-        log("补抓准备%s：楼层数不齐 %d 帖、子楼数不齐 %d 帖，已标回「评论已抓=0」"
-            % (scope_note, n_gap, n_sub))
+        log(
+            "补抓准备%s：楼层数不齐 %d 帖、子楼数不齐 %d 帖，已标回「评论已抓=0」"
+            % (scope_note, n_gap, n_sub)
+        )
     else:
         log("补抓准备%s：未发现楼层数/子楼数不齐的帖子" % scope_note)
     return n
@@ -570,8 +654,9 @@ def reset_incomplete_comments(conn, types=None, ids=None, limit=0):
 def collect_image_refs(conn):
     """从帖子与楼层里汇总所有图片引用。返回 [(source, oid, filename_or_url)]。"""
     out = []
-    for pid, imgs in conn.execute('SELECT id, "图片链接" FROM posts '
-                                  'WHERE "图片链接" IS NOT NULL').fetchall():
+    for pid, imgs in conn.execute(
+        'SELECT id, "图片链接" FROM posts WHERE "图片链接" IS NOT NULL'
+    ).fetchall():
         try:
             v = json.loads(imgs) if imgs else []
             if not isinstance(v, list):
@@ -580,34 +665,39 @@ def collect_image_refs(conn):
             v = []
         for fn in v:
             out.append(("post", pid, fn))
-    for fid, url in conn.execute('SELECT id, "图片" FROM floors '
-                                 'WHERE "图片" IS NOT NULL AND "图片"<>\'\'').fetchall():
+    for fid, url in conn.execute(
+        'SELECT id, "图片" FROM floors WHERE "图片" IS NOT NULL AND "图片"<>\'\''
+    ).fetchall():
         out.append(("floor", fid, url))
-    for pid, url in conn.execute('SELECT "帖子ID", "图片" FROM official_replies '
-                                 "WHERE \"图片\" IS NOT NULL AND \"图片\"<>''").fetchall():
+    for pid, url in conn.execute(
+        'SELECT "帖子ID", "图片" FROM official_replies WHERE "图片" IS NOT NULL AND "图片"<>\'\''
+    ).fetchall():
         out.append(("official", pid, url))
     return out
 
 
 def image_done_names(conn):
-    return {r[0] for r in conn.execute(
-        'SELECT "文件名" FROM images WHERE "已有本地"=1').fetchall()}
+    return {r[0] for r in conn.execute('SELECT "文件名" FROM images WHERE "已有本地"=1').fetchall()}
 
 
 def mark_image_ok(conn, base, src, oid, size):
     with conn:
         conn.execute(
-            'INSERT OR REPLACE INTO images '
+            "INSERT OR REPLACE INTO images "
             '("文件名","来源","对象ID","已有本地","字节数","错误") '
-            'VALUES (?,?,?,1,?,\'\')', (base, src, oid, size))
+            "VALUES (?,?,?,1,?,'')",
+            (base, src, oid, size),
+        )
 
 
 def mark_image_fail(conn, base, src, oid, err):
     with conn:
         conn.execute(
-            'INSERT OR REPLACE INTO images '
+            "INSERT OR REPLACE INTO images "
             '("文件名","来源","对象ID","已有本地","字节数","错误") '
-            'VALUES (?,?,?,0,0,?)', (base, src, oid, str(err)[:200]))
+            "VALUES (?,?,?,0,0,?)",
+            (base, src, oid, str(err)[:200]),
+        )
 
 
 def status_summary(conn):
@@ -618,11 +708,15 @@ def status_summary(conn):
     n_floor = conn.execute("SELECT COUNT(*) FROM floors").fetchone()[0]
     n_off = conn.execute("SELECT COUNT(*) FROM official_replies").fetchone()[0]
     n_img = conn.execute('SELECT COUNT(*) FROM images WHERE "已有本地"=1').fetchone()[0]
-    done = conn.execute(
-        "SELECT COUNT(*) FROM scrape_progress WHERE status='done'").fetchone()[0]
+    done = conn.execute("SELECT COUNT(*) FROM scrape_progress WHERE status='done'").fetchone()[0]
     alln = conn.execute("SELECT COUNT(*) FROM scrape_progress").fetchone()[0]
     return {
-        "posts": n_post, "body": n_body, "comments": n_cmt,
-        "floors": n_floor, "official": n_off, "images": n_img,
-        "boards_done": done, "boards_all": alln,
+        "posts": n_post,
+        "body": n_body,
+        "comments": n_cmt,
+        "floors": n_floor,
+        "official": n_off,
+        "images": n_img,
+        "boards_done": done,
+        "boards_all": alln,
     }

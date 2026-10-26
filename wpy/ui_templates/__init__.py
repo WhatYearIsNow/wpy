@@ -4,6 +4,7 @@
 CSS 和 JS 从 ui.py 拆分到这里，便于独立编辑和版本管理。
 ui.py 的 build_html 在运行时读取这些文件。
 """
+
 from __future__ import annotations
 
 import os

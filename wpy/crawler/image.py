@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """图片本地化阶段。"""
+
 from __future__ import annotations
 
 import json
@@ -9,11 +10,16 @@ import urllib.parse
 
 from ..config import IMG_DIR, PIC_API, TIMEOUT
 from ..db import (
-    collect_image_refs, image_done_names, mark_image_fail, mark_image_ok, open_db,
+    collect_image_refs,
+    image_done_names,
+    mark_image_fail,
+    mark_image_ok,
+    open_db,
 )
 from ..http import Fuse, get_bytes, pace
 from ..runlog import log
 from .shared import run_workers
+
 
 def collect_images(conn):
     """从帖子与楼层里汇总所有图片文件名。"""
@@ -32,14 +38,13 @@ def do_image(token, args):
     conn = open_db()
     fuse = Fuse()
     items = collect_images(conn)
-    log("=== 阶段四：图片本地化（共 %d 个引用，并发 %d）==="
-        % (len(items), args.concurrency))
+    log("=== 阶段四：图片本地化（共 %d 个引用，并发 %d）===" % (len(items), args.concurrency))
     os.makedirs(IMG_DIR, exist_ok=True)
 
     have = image_done_names(conn)
     queue = [it for it in items if it[2] and it[2] not in have]
     if args.limit:
-        queue = queue[:args.limit]
+        queue = queue[: args.limit]
     if not queue:
         log("没有待下载的图片。")
         conn.close()
@@ -54,7 +59,7 @@ def do_image(token, args):
                 if not queue:
                     return
                 src, oid, fname = queue.pop()
-            base = fname.split("#")[0]          # #masked 只是展示标记，不是文件名
+            base = fname.split("#")[0]  # #masked 只是展示标记，不是文件名
             path = os.path.join(IMG_DIR, base)
             try:
                 parent = os.path.dirname(path)
@@ -85,6 +90,7 @@ def do_image(token, args):
 
     run_workers(worker, args.concurrency)
     conn.close()
-    log("阶段四结束：成功 %d 张，失败 %d 张（重新运行会只补失败的）"
-        % (counter["ok"], counter["fail"]))
-
+    log(
+        "阶段四结束：成功 %d 张，失败 %d 张（重新运行会只补失败的）"
+        % (counter["ok"], counter["fail"])
+    )

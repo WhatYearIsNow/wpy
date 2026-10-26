@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """导出、抽样核查、板块 reopen。"""
+
 from __future__ import annotations
 
 import csv
@@ -11,6 +12,7 @@ from ..db import list_done_boards, open_db, reopen_done_boards
 from ..http import api_get, pace
 from ..runlog import log
 
+
 def do_export(args):
     conn = open_db()
     # 分页导出：避免 20 万帖一次性加载到内存。
@@ -20,9 +22,7 @@ def do_export(args):
     total_written = 0
 
     # 先取第一页获取列名
-    cur = conn.execute(
-        "SELECT * FROM posts ORDER BY id LIMIT ? OFFSET ?",
-        (PAGE_SIZE, offset))
+    cur = conn.execute("SELECT * FROM posts ORDER BY id LIMIT ? OFFSET ?", (PAGE_SIZE, offset))
     names = [d[0] for d in cur.description]
     rows = [dict(zip(names, r)) for r in cur.fetchall()]
 
@@ -47,9 +47,7 @@ def do_export(args):
 
     while len(rows) == PAGE_SIZE:
         offset += PAGE_SIZE
-        cur = conn.execute(
-            "SELECT * FROM posts ORDER BY id LIMIT ? OFFSET ?",
-            (PAGE_SIZE, offset))
+        cur = conn.execute("SELECT * FROM posts ORDER BY id LIMIT ? OFFSET ?", (PAGE_SIZE, offset))
         rows = [dict(zip(names, r)) for r in cur.fetchall()]
         if rows:
             with open(CSV_PATH, "a", encoding="utf-8-sig") as f:
@@ -68,8 +66,9 @@ def do_export(args):
 
 def do_verify(token, sample_n, seed):
     conn = open_db()
-    rows = conn.execute('SELECT id, "标题", "正文", "作者" FROM posts '
-                        'WHERE "正文已补">=0').fetchall()
+    rows = conn.execute(
+        'SELECT id, "标题", "正文", "作者" FROM posts WHERE "正文已补">=0'
+    ).fetchall()
     if not rows:
         conn.close()
         log("无数据可核查。")
@@ -87,10 +86,11 @@ def do_verify(token, sample_n, seed):
         t_ok = (post.get("title") or "") == (title or "")
         c_ok = (post.get("content") or "") == (content or "")
         ok += 1 if (t_ok and c_ok) else 0
-        n_floor = conn.execute('SELECT COUNT(*) FROM floors WHERE "帖子ID"=?',
-                               (pid,)).fetchone()[0]
-        print("CHECK id=%s title=%s content=%s 作者=%s 本地评论=%d"
-              % (pid, t_ok, c_ok, author, n_floor))
+        n_floor = conn.execute('SELECT COUNT(*) FROM floors WHERE "帖子ID"=?', (pid,)).fetchone()[0]
+        print(
+            "CHECK id=%s title=%s content=%s 作者=%s 本地评论=%d"
+            % (pid, t_ok, c_ok, author, n_floor)
+        )
         pace(REQUEST_INTERVAL)
     conn.close()
     print("\n抽样 %d 条，标题+正文完全一致 %d 条。" % (len(sample), ok))
@@ -134,5 +134,5 @@ def do_reopen():
 def guess_type(name):
     """按扩展名返回 Content-Type（从 content_type 模块导入）。"""
     from ..content_type import guess_type as _gt
-    return _gt(name)
 
+    return _gt(name)

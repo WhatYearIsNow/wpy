@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """运行日志与状态输出。独立于 HTTP / DB / 抓取阶段。"""
+
 import os
 import threading
 import time
@@ -97,10 +98,11 @@ class Ticker:
                 eta = ""
                 if done > 0 and total > done:
                     remain = (time.time() - self.start) / done * (total - done)
-                    eta = "，预计还需 %d 分 %d 秒" % (int(remain) // 60,
-                                                     int(remain) % 60)
-                log("  %s %s %d/%d，已用 %d 分 %d 秒%s"
-                    % (self.what, b, done, total, el // 60, el % 60, eta))
+                    eta = "，预计还需 %d 分 %d 秒" % (int(remain) // 60, int(remain) % 60)
+                log(
+                    "  %s %s %d/%d，已用 %d 分 %d 秒%s"
+                    % (self.what, b, done, total, el // 60, el % 60, eta)
+                )
             else:
                 log("  %s进行中：已用 %d 分 %d 秒" % (self.what, el // 60, el % 60))
 

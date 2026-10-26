@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """运行状态与抓取进度展示。"""
+
 from __future__ import annotations
 
 import os
@@ -7,6 +8,7 @@ import os
 from ..config import DB_PATH, RUN_STATE_PATH
 from ..db import _int, list_progress_rows, open_db, status_summary
 from ..runlog import log
+
 
 def read_run_state():
     """读运行状态文件；返回 (state, updated, detail, pid, alive)。"""
@@ -25,7 +27,7 @@ def read_run_state():
     alive = False
     if pid:
         try:
-            os.kill(pid, 0)      # 仅探测进程是否存在
+            os.kill(pid, 0)  # 仅探测进程是否存在
             alive = True
         except (OSError, ProcessLookupError, PermissionError):
             alive = False
@@ -42,9 +44,10 @@ def do_status(brief=False):
     conn = open_db()
     if brief:
         s = status_summary(conn)
-        print("已抓 %d 帖（正文 %d）｜评论 %d 帖 / %d 楼｜板块 %d/%d 完成"
-              % (s["posts"], s["body"], s["comments"], s["floors"],
-                 s["boards_done"], s["boards_all"]))
+        print(
+            "已抓 %d 帖（正文 %d）｜评论 %d 帖 / %d 楼｜板块 %d/%d 完成"
+            % (s["posts"], s["body"], s["comments"], s["floors"], s["boards_done"], s["boards_all"])
+        )
         conn.close()
         return
 
@@ -68,20 +71,31 @@ def do_status(brief=False):
     print("=" * 60)
     print()
 
-    print("%-5s %-12s %9s %9s %9s  %s"
-          % ("type", "板块", "总页数", "已抓页", "已抓条", "状态"))
+    print("%-5s %-12s %9s %9s %9s  %s" % ("type", "板块", "总页数", "已抓页", "已抓条", "状态"))
     print("-" * 68)
-    for r in conn.execute('SELECT "type",name,total_pages,last_page,'
-                          'fetched,status,last_error FROM scrape_progress '
-                          'ORDER BY "type"'):
+    for r in conn.execute(
+        'SELECT "type",name,total_pages,last_page,'
+        "fetched,status,last_error FROM scrape_progress "
+        'ORDER BY "type"'
+    ):
         tid, name, tp, lp, ft, st, err = r
-        print("%-5s %-12s %9s %9s %9s  %s%s"
-              % (tid, name, tp if tp else "?", lp, ft, st or "-",
-                 ("  最近错误：" + str(err)[:60]) if err and st == "error" else ""))
+        print(
+            "%-5s %-12s %9s %9s %9s  %s%s"
+            % (
+                tid,
+                name,
+                tp if tp else "?",
+                lp,
+                ft,
+                st or "-",
+                ("  最近错误：" + str(err)[:60]) if err and st == "error" else "",
+            )
+        )
     print("-" * 68)
     print("注：总页数来自服务端 total 字段（实测为页数），? 表示尚未探测到。")
     s = status_summary(conn)
-    print("帖子 %d 条｜正文已补 %d｜评论已抓 %d 帖 / %d 楼（官方回复 %d）｜图片已存 %d 张"
-          % (s["posts"], s["body"], s["comments"], s["floors"], s["official"], s["images"]))
+    print(
+        "帖子 %d 条｜正文已补 %d｜评论已抓 %d 帖 / %d 楼（官方回复 %d）｜图片已存 %d 张"
+        % (s["posts"], s["body"], s["comments"], s["floors"], s["official"], s["images"])
+    )
     conn.close()
-

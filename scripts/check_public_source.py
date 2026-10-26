@@ -1,4 +1,5 @@
 """检查候选发布源码中的常见凭据，不读取被忽略的运行数据、不打印秘密值。"""
+
 from __future__ import annotations
 
 import argparse
@@ -12,8 +13,21 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_DIRS = {".git", "data", "build", "dist", "logs", ".backup", ".venv", "venv"}
 SKIP_DIRS = {"__pycache__", ".pytest_cache", "htmlcov"}
-TEXT_SUFFIXES = {".py", ".md", ".js", ".css", ".json", ".toml", ".yml", ".yaml",
-                 ".example", ".service", ".timer", ".txt", ".in"}
+TEXT_SUFFIXES = {
+    ".py",
+    ".md",
+    ".js",
+    ".css",
+    ".json",
+    ".toml",
+    ".yml",
+    ".yaml",
+    ".example",
+    ".service",
+    ".timer",
+    ".txt",
+    ".in",
+}
 SECRET_NAME = r"(?:APP_SECRET|HOT_TOKEN|BOARD_TOKEN|API_KEY|ACCESS_TOKEN|PASSWORD|TOKEN)"
 CREDENTIAL_VALUE = r"[A-Za-z0-9_./+=:@!$%&?~*-]{16,}"
 LITERAL = re.compile(
@@ -22,10 +36,13 @@ LITERAL = re.compile(
 )
 FALLBACK = re.compile(
     rf"\b(?:getenv|environ\.get)\(\s*[\"'](?:WPY_)?{SECRET_NAME}[\"']"
-    rf"\s*,\s*([\"'])(?P<value>{CREDENTIAL_VALUE})\1", re.IGNORECASE,
+    rf"\s*,\s*([\"'])(?P<value>{CREDENTIAL_VALUE})\1",
+    re.IGNORECASE,
 )
 HEX = re.compile(r"\b[a-fA-F0-9]{32,}\b")
-SERVICE_TOKEN = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9_-]{24,})\b")
+SERVICE_TOKEN = re.compile(
+    r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9_-]{24,})\b"
+)
 PRIVATE_KEY = re.compile(r"-{5}BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-{5}")
 EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@(?P<domain>[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
 PHONE = re.compile(r"\b1[3-9]\d{9}\b")
@@ -37,22 +54,40 @@ def example_email(domain: str) -> bool:
     # GitHub 服务身份：平台自动生成的合并提交会用这些地址，不属于个人泄露
     if domain == "github.com" or domain.endswith(".github.com"):
         return True
-    return (domain in {"example.com", "example.org", "example.net", "localhost"}
-            or domain.endswith((".example", ".invalid", ".test", ".localhost", ".local")))
+    return domain in {"example.com", "example.org", "example.net", "localhost"} or domain.endswith(
+        (".example", ".invalid", ".test", ".localhost", ".local")
+    )
 
 
 def placeholder(value: str) -> bool:
     value = value.lower()
-    return (any(word in value for word in
-                ("example", "placeholder", "your_", "your-", "custom_", "test_", "fake_", "dummy"))
-            or len(set(value)) <= 1)
+    return (
+        any(
+            word in value
+            for word in (
+                "example",
+                "placeholder",
+                "your_",
+                "your-",
+                "custom_",
+                "test_",
+                "fake_",
+                "dummy",
+            )
+        )
+        or len(set(value)) <= 1
+    )
 
 
 def scan_text(text: str) -> list[tuple[int, str]]:
     findings = set()
-    for pattern, category in ((LITERAL, "credential literal"), (FALLBACK, "credential fallback"),
-                              (HEX, "long hexadecimal literal"), (SERVICE_TOKEN, "service token"),
-                              (PRIVATE_KEY, "private key")):
+    for pattern, category in (
+        (LITERAL, "credential literal"),
+        (FALLBACK, "credential fallback"),
+        (HEX, "long hexadecimal literal"),
+        (SERVICE_TOKEN, "service token"),
+        (PRIVATE_KEY, "private key"),
+    ):
         for match in pattern.finditer(text):
             value = match.groupdict().get("value", match.group())
             if not placeholder(value):
@@ -60,7 +95,10 @@ def scan_text(text: str) -> list[tuple[int, str]]:
     for match in EMAIL.finditer(text):
         if not example_email(match.group("domain")):
             findings.add((text.count("\n", 0, match.start()) + 1, "personal email"))
-    for pattern, category in ((PHONE, "possible phone number"), (STUDENT_ID, "possible student identifier")):
+    for pattern, category in (
+        (PHONE, "possible phone number"),
+        (STUDENT_ID, "possible student identifier"),
+    ):
         for match in pattern.finditer(text):
             findings.add((text.count("\n", 0, match.start()) + 1, category))
     return sorted(findings)
@@ -68,12 +106,19 @@ def scan_text(text: str) -> list[tuple[int, str]]:
 
 def private_path(path: Path) -> bool:
     name = path.name
-    return (any(part in PRIVATE_DIRS for part in path.parts)
-            or name in {".tju_key", "凭据.json", "credentials.json"}
-            or (name.startswith(".env") and name != ".env.example")
-            or (path.parts[0] == "deploy" and name.startswith("env.") and not name.endswith(".example"))
-            or (path.parts[0] == "pages" and name.endswith(".json") and not name.endswith(".example.json"))
-            or name.endswith((".db", ".sqlite", ".sqlite3", ".bak")) or ".bak-" in name)
+    return (
+        any(part in PRIVATE_DIRS for part in path.parts)
+        or name in {".tju_key", "凭据.json", "credentials.json"}
+        or (name.startswith(".env") and name != ".env.example")
+        or (path.parts[0] == "deploy" and name.startswith("env.") and not name.endswith(".example"))
+        or (
+            path.parts[0] == "pages"
+            and name.endswith(".json")
+            and not name.endswith(".example.json")
+        )
+        or name.endswith((".db", ".sqlite", ".sqlite3", ".bak"))
+        or ".bak-" in name
+    )
 
 
 def git(root: Path, *args: str) -> bytes:
@@ -85,8 +130,15 @@ def git(root: Path, *args: str) -> bytes:
 
 def candidates(root: Path) -> list[Path]:
     if (root / ".git").exists():
-        return sorted({Path(p.decode("utf-8", "surrogateescape")) for p in
-                       git(root, "ls-files", "--cached", "--others", "--exclude-standard", "-z").split(b"\0") if p})
+        return sorted(
+            {
+                Path(p.decode("utf-8", "surrogateescape"))
+                for p in git(
+                    root, "ls-files", "--cached", "--others", "--exclude-standard", "-z"
+                ).split(b"\0")
+                if p
+            }
+        )
     paths = []
     pending = [root]
     while pending:
@@ -112,7 +164,9 @@ def scan_paths(root: Path, paths: list[Path]) -> list[tuple[str, int, str]]:
             findings.append((str(relative), 0, "private runtime file or directory"))
         elif path.is_symlink():
             findings.append((str(relative), 0, "symbolic link requires review"))
-        elif path.is_file() and (path.suffix in TEXT_SUFFIXES or not path.suffix or path.name == ".gitignore"):
+        elif path.is_file() and (
+            path.suffix in TEXT_SUFFIXES or not path.suffix or path.name == ".gitignore"
+        ):
             text = path.read_text(encoding="utf-8", errors="replace")
             if relative.parts[0] == "pages" and relative.name.endswith(".example.json"):
                 try:
@@ -127,9 +181,13 @@ def scan_paths(root: Path, paths: list[Path]) -> list[tuple[str, int, str]]:
 def scan_history(root: Path) -> list[tuple[str, int, str]]:
     findings = []
     for revision in git(root, "rev-list", "--all").decode().splitlines():
-        metadata = git(root, "show", "-s", "--format=%an%n%ae%n%cn%n%ce", revision).decode("utf-8", "replace")
-        findings.extend((f"history {revision[:12]} commit metadata", line, category)
-                        for line, category in scan_text(metadata))
+        metadata = git(root, "show", "-s", "--format=%an%n%ae%n%cn%n%ce", revision).decode(
+            "utf-8", "replace"
+        )
+        findings.extend(
+            (f"history {revision[:12]} commit metadata", line, category)
+            for line, category in scan_text(metadata)
+        )
         for raw in git(root, "ls-tree", "-r", "--name-only", "-z", revision).split(b"\0"):
             if not raw:
                 continue
@@ -138,7 +196,9 @@ def scan_history(root: Path) -> list[tuple[str, int, str]]:
             if private_path(relative):
                 findings.append((label, 0, "private runtime file"))
             elif relative.suffix in TEXT_SUFFIXES or not relative.suffix:
-                text = git(root, "show", f"{revision}:{relative.as_posix()}").decode("utf-8", "replace")
+                text = git(root, "show", f"{revision}:{relative.as_posix()}").decode(
+                    "utf-8", "replace"
+                )
                 findings.extend((label, line, category) for line, category in scan_text(text))
     return findings
 
@@ -146,7 +206,9 @@ def scan_history(root: Path) -> list[tuple[str, int, str]]:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
-    parser.add_argument("--history", action="store_true", help="同时检查本地 Git 历史；只输出位置和类别")
+    parser.add_argument(
+        "--history", action="store_true", help="同时检查本地 Git 历史；只输出位置和类别"
+    )
     args = parser.parse_args(argv)
     root = args.root.resolve()
     try:

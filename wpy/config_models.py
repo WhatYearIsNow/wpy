@@ -4,6 +4,7 @@
 提供结构化的配置访问和启动时校验，避免隐式错误。
 所有配置项均可通过环境变量覆盖，保留与 config.py 的完全兼容。
 """
+
 from __future__ import annotations
 
 import os
@@ -15,6 +16,7 @@ from typing import Optional
 @dataclass(frozen=True)
 class ServerConfig:
     """看板服务配置。"""
+
     host: str
     port: int
     token: str
@@ -40,15 +42,14 @@ class ServerConfig:
             pass
         else:
             if not self.token:
-                errors.append(
-                    "公网绑定 (0.0.0.0/::) 时必须设置 WPY_BOARD_TOKEN 环境变量"
-                )
+                errors.append("公网绑定 (0.0.0.0/::) 时必须设置 WPY_BOARD_TOKEN 环境变量")
         return errors
 
 
 @dataclass(frozen=True)
 class PathConfig:
     """数据/构建/日志路径配置。"""
+
     data_dir: str
     build_dir: str
     log_dir: str
@@ -103,6 +104,7 @@ class PathConfig:
 @dataclass(frozen=True)
 class CrawlerConfig:
     """抓取流水线配置。"""
+
     page_size: int
     comment_page_size: int
     max_retry: int
@@ -155,6 +157,7 @@ class CrawlerConfig:
 @dataclass(frozen=True)
 class AuthConfig:
     """认证配置。"""
+
     app_key: str
     app_secret: str
     main_api: str

@@ -1,4 +1,5 @@
 """验证新安装启动与已有数据浏览，全程使用临时数据库和本地 HTTP。"""
+
 import json
 import os
 from pathlib import Path
@@ -16,8 +17,7 @@ import pytest
 @pytest.mark.parametrize("database_state", ["missing", "empty_file", "populated"])
 def test_serve_with_local_database(tmp_path, database_state):
     existing_post = database_state == "populated"
-    env = {key: value for key, value in os.environ.items()
-           if not key.startswith("WPY_")}
+    env = {key: value for key, value in os.environ.items() if not key.startswith("WPY_")}
     for name in ("DATA", "BUILD", "LOG", "PAGES"):
         directory = tmp_path / name.lower()
         directory.mkdir()
@@ -27,9 +27,11 @@ def test_serve_with_local_database(tmp_path, database_state):
         db_path.touch()
     if existing_post:
         from wpy.db import open_db
+
         conn = open_db(str(db_path))
-        conn.execute('INSERT INTO posts (id, "标题", "板块ID") VALUES (?, ?, ?)',
-                     (1, "temporary fixture", 2))
+        conn.execute(
+            'INSERT INTO posts (id, "标题", "板块ID") VALUES (?, ?, ?)', (1, "temporary fixture", 2)
+        )
         conn.commit()
         conn.close()
 
@@ -37,10 +39,22 @@ def test_serve_with_local_database(tmp_path, database_state):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     proc = subprocess.Popen(
-        [sys.executable, "-m", "wpy", "serve", "--host", "127.0.0.1",
-         "--port", str(port), "--no-open"],
-        cwd=Path(__file__).resolve().parents[1], env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        [
+            sys.executable,
+            "-m",
+            "wpy",
+            "serve",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--no-open",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
     )
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     base = f"http://127.0.0.1:{port}"
