@@ -11,6 +11,9 @@ WPY 由 `snatch-wpy` 演进而来，是同一项目的最新版本。
 
 ## 快速开始
 
+在已有正式服务的服务器上开发，请优先使用[隔离开发入口](docs/MAINTENANCE.md)，
+它使用独立数据和 18765/18766 端口。正式[发布与回滚](docs/RELEASES.md)与开发命令分开。
+
 需要 Python 3.10+。在项目根目录创建开发环境：
 
 ```bash
@@ -58,6 +61,8 @@ python scripts/check_public_source.py # 检查候选发布源码
 - [项目状态与后续接续](docs/PROJECT_STATE.md) — 当前约定、GitHub 跟踪方式与维护入口
 - [架构文档](docs/ARCHITECTURE.md) — 系统架构、模块说明、数据模型
 - [开发指南](docs/DEVELOPMENT.md) — 开发流程、编码规范、配置说明
+- [维护约定与源码阅读路线](docs/MAINTENANCE.md) — 固定工具、隔离预览、检查和格式修复
+- [发布与回滚](docs/RELEASES.md) — 固定版本、健康检查、备份和数据兼容
 - [变更日志](CHANGELOG.md) — 所有重要变更记录
 - [个人互动邮件提醒](docs/EMAIL_NOTIFICATIONS.md) — 五分钟检查、去重补发、配置与上游依据
 - [AI 自主互动](docs/AI_AGENT.md) — 约每天十轮、校务区限制、本人账号与天大模型配置

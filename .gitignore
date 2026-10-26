@@ -35,3 +35,9 @@ deploy/env.notify
 # 临时
 *.tmp
 *.pyo
+
+# Isolated development, release staging and machine-specific operations
+.local/
+.ruff_cache/
+deploy/runtime.local.json
+deploy/env.ai

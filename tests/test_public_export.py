@@ -37,6 +37,8 @@ def test_export_copies_source_but_excludes_runtime_and_credentials(source_export
         ".tju_key",
         "deploy/env.update",
         "deploy/.env",
+        "deploy/runtime.local.json",
+        "wpy/.local/dev/state.json",
         "wpy/__pycache__/config.pyc",
         "docs/.backup/old.md",
         "pages/exp_add.json",
@@ -70,12 +72,16 @@ def test_export_includes_page_documentation_and_empty_template(source_exporter):
     (pages / "README.md").write_text("Local page contents stay private.\n")
     (pages / "content.example.json").write_text("{}\n")
     (pages / "local.json").write_text("private fixture\n")
+    (root / ".editorconfig").write_text("root = true\n")
+    (root / "requirements-dev.lock").write_text("pytest==8.4.2\n")
 
     module.export(output)
 
     assert (output / "pages" / "README.md").is_file()
     assert (output / "pages" / "content.example.json").read_text() == "{}\n"
     assert not (output / "pages" / "local.json").exists()
+    assert (output / ".editorconfig").exists()
+    assert (output / "requirements-dev.lock").exists()
 
 
 def test_scan_failure_does_not_create_output(source_exporter):

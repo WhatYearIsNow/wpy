@@ -12,7 +12,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_DIRS = {".git", "data", "build", "dist", "logs", ".backup", ".venv", "venv"}
-SKIP_DIRS = {"__pycache__", ".pytest_cache", "htmlcov"}
+PRIVATE_DIRS.add(".local")
+SKIP_DIRS = {"__pycache__", ".pytest_cache", ".ruff_cache", "htmlcov"}
 TEXT_SUFFIXES = {
     ".py",
     ".md",
@@ -107,7 +108,8 @@ def scan_text(text: str) -> list[tuple[int, str]]:
 def private_path(path: Path) -> bool:
     name = path.name
     return (
-        any(part in PRIVATE_DIRS for part in path.parts)
+        (path.parts[0] == "deploy" and name == "runtime.local.json")
+        or any(part in PRIVATE_DIRS for part in path.parts)
         or name in {".tju_key", "凭据.json", "credentials.json"}
         or (name.startswith(".env") and name != ".env.example")
         or (path.parts[0] == "deploy" and name.startswith("env.") and not name.endswith(".example"))

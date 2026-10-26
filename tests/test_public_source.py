@@ -39,6 +39,7 @@ def test_private_files_are_not_opened(tmp_path, monkeypatch):
     private = tmp_path / "deploy" / "env.update"
     private.parent.mkdir()
     private.write_text("private contents")
+    (private.parent / "runtime.local.json").write_text("private machine configuration")
 
     def reject_read(*args, **kwargs):
         raise AssertionError("private file must not be read")
@@ -46,6 +47,9 @@ def test_private_files_are_not_opened(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "read_text", reject_read)
     findings = checker.scan_paths(tmp_path, [Path("deploy/env.update")])
     assert findings == [("deploy/env.update", 0, "private runtime file or directory")]
+    assert checker.scan_paths(tmp_path, [Path("deploy/runtime.local.json")]) == [
+        ("deploy/runtime.local.json", 0, "private runtime file or directory")
+    ]
 
 
 def test_snapshot_reports_private_directories_without_descending(tmp_path):

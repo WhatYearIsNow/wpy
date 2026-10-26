@@ -1,0 +1,13 @@
+{
+  "release_root": "/opt/wpy/wpy-sitewide/releases",
+  "state_dir": "/opt/wpy/ops",
+  "paths": {
+    "DATA": "/opt/wpy/wpy-sitewide/data",
+    "BUILD": "/opt/wpy/wpy-sitewide/build",
+    "LOG": "/opt/wpy/wpy-sitewide/logs",
+    "PAGES": "/opt/wpy/wpy-sitewide/pages"
+  },
+  "stats_args": ["--rebuild", "--qps", "6"],
+  "full_stats_args": ["--all", "--rebuild", "--qps", "6"],
+  "update_args": ["--no-confirm", "--qps", "10"]
+}

@@ -1,5 +1,9 @@
 # 开发指南
 
+推荐入口、固定依赖、格式规则和源码阅读路线见[维护约定](MAINTENANCE.md)。
+在正式服务器开发请用 `scripts/dev.py`，不直接使用下文默认的正式端口。
+发布、健康检查和回滚见[发布流程](RELEASES.md)。
+
 ## 环境要求
 
 - Python 3.10+（运行时仅使用标准库）
@@ -9,13 +13,14 @@
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Windows PowerShell：.venv\Scripts\Activate.ps1
-python -m pip install -e '.[dev]'
+python -m pip install -r requirements-dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
 ```
 
 ## 项目结构
 
 ```
-wpy-sitewide/
+wpy/
 ├── wpy/                       主包
 │   ├── __main__.py            python -m wpy 入口
 │   ├── cli.py                 命令分发 + 配置验证
@@ -133,7 +138,7 @@ python -m wpy status
 ### 错误处理
 
 - 网络请求失败走重试 + 熔断
-- 文件 I/O 失败静默处理（try/except pass）
+- 文件 I/O 沿用模块既有错误边界，不为风格统一而静默吞掉异常
 - 配置验证在启动时执行，非致命错误用 `log_warnings()`
 
 ### 数据库

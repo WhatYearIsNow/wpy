@@ -24,6 +24,7 @@ SOURCE_FILES = {
     "ask.py",
     "AGENTS.md",
 }
+SOURCE_FILES.update({".editorconfig", "requirements-dev.lock"})
 PRIVATE_DIRS = {
     ".git",
     ".backup",
@@ -37,6 +38,7 @@ PRIVATE_DIRS = {
     "venv",
     "htmlcov",
 }
+PRIVATE_DIRS.update({".local", ".ruff_cache"})
 
 
 def public_path(path: Path) -> bool:
@@ -44,6 +46,8 @@ def public_path(path: Path) -> bool:
     if any(part in PRIVATE_DIRS or part.endswith(".egg-info") for part in path.parts):
         return False
     name = path.name
+    if path.parts[0] == "deploy" and name == "runtime.local.json":
+        return False
     if name.startswith(".env") and name != ".env.example":
         return False
     if (

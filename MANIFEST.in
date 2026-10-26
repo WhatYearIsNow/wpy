@@ -2,6 +2,8 @@ include CHANGELOG.md
 include AGENTS.md
 include ask.py
 include .gitignore
+include .editorconfig
+include requirements-dev.lock
 recursive-include docs *.md
 recursive-include scripts *.py
 recursive-include tools *.py
@@ -9,5 +11,6 @@ recursive-include tests *.py
 recursive-exclude pages *
 recursive-include pages *.example.json *.md
 recursive-include deploy *.md *.example *.service *.timer Caddyfile
+include deploy/runtime.example.json
 recursive-include .github *.yml *.md
 global-exclude __pycache__ *.py[cod]
