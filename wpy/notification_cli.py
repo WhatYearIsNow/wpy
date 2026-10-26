@@ -52,6 +52,11 @@ def add_parser(sub):
         default=os.environ.get("WPY_NOTIFY_BASE_URL", ""),
         help="邮件中查看帖子的看板根地址，可留空",
     )
+    parser.add_argument(
+        "--agent-state",
+        default=os.environ.get("WPY_NOTIFY_AI_STATE", ""),
+        help="可选的大肥鱼状态目录或数据库；其互动不重复发送“微北洋”邮件",
+    )
     parser.add_argument("--interval", type=int, default=INTERVAL, help="检查间隔秒数，至少 300 秒")
     parser.add_argument(
         "--max-pages",
@@ -62,12 +67,14 @@ def add_parser(sub):
     return parser
 
 
-def watch(client, store, sender, stop, *, interval=INTERVAL, base_url="", report=print):
+def watch(
+    client, store, sender, stop, *, interval=INTERVAL, base_url="", agent_state="", report=print
+):
     failures = 0
     while not stop.is_set():
         delay = interval
         try:
-            result = run_cycle(client, store, sender, base_url)
+            result = run_cycle(client, store, sender, base_url, agent_state=agent_state)
             failures = 0
             report(json.dumps(result, ensure_ascii=False))
         except AuthenticationError:
@@ -116,7 +123,13 @@ def main(args):
                     print(json.dumps(result, ensure_ascii=False))
                     return int(result["failed"] > 0)
                 if not args.watch:
-                    result = run_cycle(client, store, sender, base_url)
+                    result = run_cycle(
+                        client,
+                        store,
+                        sender,
+                        base_url,
+                        agent_state=getattr(args, "agent_state", ""),
+                    )
                     print(json.dumps(result, ensure_ascii=False))
                     return int(result["failed"] > 0)
                 stop = threading.Event()
@@ -124,7 +137,15 @@ def main(args):
                 for sig in (signal.SIGTERM, signal.SIGINT):
                     old_handlers[sig] = signal.signal(sig, lambda *_: stop.set())
                 try:
-                    watch(client, store, sender, stop, interval=args.interval, base_url=base_url)
+                    watch(
+                        client,
+                        store,
+                        sender,
+                        stop,
+                        interval=args.interval,
+                        base_url=base_url,
+                        agent_state=getattr(args, "agent_state", ""),
+                    )
                 finally:
                     for sig, handler in old_handlers.items():
                         signal.signal(sig, handler)

@@ -334,7 +334,7 @@ class NotificationStore:
         ).fetchone()[0]
         return {"initial": not initialized, "floor_cursor": (cursor or 0) if initialized else None}
 
-    def ingest(self, events, base_url=""):
+    def ingest(self, events, base_url="", *, excluded=frozenset()):
         """去重基线与发件箱在同一个事务中落盘；首次启动仅建立基线。"""
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
@@ -347,9 +347,14 @@ class NotificationStore:
                 ).fetchone()
                 liked = event["kind"] in ("post_like", "floor_like")
                 increase = max(0, event["likes"] - row[0]) if liked and row else None
-                if initialized and (
-                    (liked and (increase or (row is None and event["likes"])))
-                    or (not liked and row is None)
+                key = (event["kind"], event["target_id"])
+                if (
+                    key not in excluded
+                    and initialized
+                    and (
+                        (liked and (increase or (row is None and event["likes"])))
+                        or (not liked and row is None)
+                    )
                 ):
                     changes.append(dict(event, increase=increase))
                 self.db.execute(
@@ -375,11 +380,13 @@ class NotificationStore:
             )
             return {"baseline": not bool(initialized), "new": len(changes)}
 
-    def new_events(self, events):
+    def new_events(self, events, *, excluded=frozenset()):
         if not self.db.execute("SELECT 1 FROM meta WHERE key='initialized'").fetchone():
             return []
         changes = []
         for event in events:
+            if (event["kind"], event["target_id"]) in excluded:
+                continue
             row = self.db.execute(
                 "SELECT likes FROM seen WHERE kind=? AND target_id=?",
                 (event["kind"], event["target_id"]),
@@ -421,12 +428,52 @@ class NotificationStore:
         return {"sent": sent, "failed": failed, "pending": pending}
 
 
-def run_cycle(client, store, sender, base_url=""):
+def agent_owned_content(path):
+    """只读大肥鱼状态中的自有帖子/评论 ID，不读取动作正文或身份配置。"""
+    if not path:
+        return set(), set()
+    source = Path(path)
+    if source.is_dir():
+        source = source / "agent.sqlite3"
+    try:
+        connection = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+        try:
+            rows = connection.execute(
+                "SELECT entity,remote_id FROM own_content WHERE entity IN ('post','floor')"
+            ).fetchall()
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error):
+        raise NotificationError("无法读取大肥鱼自有内容状态，本轮未更新消息基线") from None
+    posts = {remote_id for entity, remote_id in rows if entity == "post" and type(remote_id) is int}
+    floors = {
+        remote_id for entity, remote_id in rows if entity == "floor" and type(remote_id) is int
+    }
+    return posts, floors
+
+
+def agent_event_keys(events, posts, floors):
+    """这些互动由大肥鱼动作邮件负责，不再重复放入“微北洋”通知。"""
+    excluded = set()
+    for event in events:
+        kind = event["kind"]
+        owned = (kind in ("post_like", "post_comment") and event["post_id"] in posts) or (
+            kind in ("floor_like", "comment_reply")
+            and (event.get("my_comment_id") or event["target_id"]) in floors
+        )
+        if owned:
+            excluded.add((kind, event["target_id"]))
+    return excluded
+
+
+def run_cycle(client, store, sender, base_url="", *, agent_state=""):
     # 先补发队列；论坛接口不可用时也不能阻塞已持久化的邮件。
     delivery = store.deliver(sender)
     snapshot = client.snapshot(**store.scan_options())
-    client.enrich(store.new_events(snapshot))
-    result = store.ingest(snapshot, base_url)
+    posts, floors = agent_owned_content(agent_state)
+    excluded = agent_event_keys(snapshot, posts, floors)
+    client.enrich(store.new_events(snapshot, excluded=excluded))
+    result = store.ingest(snapshot, base_url, excluded=excluded)
     if not delivery["failed"]:
         extra = store.deliver(sender)
         delivery = {

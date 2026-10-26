@@ -5,6 +5,7 @@ from io import BytesIO
 import json
 import os
 import smtplib
+import sqlite3
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
@@ -17,6 +18,8 @@ from wpy.notifications import (
     ForumClient,
     NotificationStore,
     RateLimited,
+    agent_event_keys,
+    agent_owned_content,
     normalize,
     run_cycle,
     worker_lock,
@@ -110,6 +113,40 @@ def test_first_run_baselines_without_sending_and_later_changes_are_grouped(store
     assert "评论" in sent[0][1] and "本轮观察增加 1" in sent[0][1]
     assert store.ingest(changed)["new"] == 0
     assert store.deliver(lambda *args: pytest.fail("不应重复发信"))["sent"] == 0
+
+
+def test_big_fish_owned_content_is_seen_but_not_sent_as_personal_notification(store, tmp_path):
+    agent_db = tmp_path / "agent.sqlite3"
+    connection = sqlite3.connect(agent_db)
+    connection.execute(
+        "CREATE TABLE own_content (entity TEXT, remote_id INTEGER, at REAL, "
+        "PRIMARY KEY (entity,remote_id))"
+    )
+    connection.executemany("INSERT INTO own_content VALUES (?,?,0)", [("post", 101), ("floor", 10)])
+    connection.commit()
+    connection.close()
+    posts, floors = agent_owned_content(agent_db)
+    ai_reply = event(kind_type=1, target=12)
+    human_reply = event(kind_type=1, target=13)
+    human_reply["my_comment_id"] = 999
+    excluded = agent_event_keys([ai_reply, human_reply], posts, floors)
+    store.ingest([])
+    assert store.ingest([ai_reply, human_reply], excluded=excluded)["new"] == 1
+    sent = []
+    assert store.deliver(lambda *args: sent.append(args))["sent"] == 1
+    assert sent[0][1].count("通知类型：") == 1
+    assert store.ingest([ai_reply, human_reply], excluded=excluded)["new"] == 0
+
+
+def test_all_big_fish_post_and_comment_interactions_are_excluded():
+    events = [
+        event("likes", 0, target=20),
+        event("floors", 0, target=21),
+        event("likes", 1, target=10),
+        event("floors", 1, target=22),
+    ]
+    excluded = agent_event_keys(events, {101}, {10})
+    assert excluded == {(item["kind"], item["target_id"]) for item in events}
 
 
 def test_like_decrease_then_increase_is_a_new_observation(store):
@@ -555,13 +592,13 @@ def test_watch_default_interval_and_backoff():
         def scan_options(self):
             return {}
 
-        def new_events(self, events):
+        def new_events(self, events, *, excluded=frozenset()):
             return []
 
         def deliver(self, sender):
             return {"sent": 0, "failed": 0, "pending": 0}
 
-        def ingest(self, snapshot, base_url):
+        def ingest(self, snapshot, base_url, *, excluded=frozenset()):
             return {"baseline": False, "new": 0}
 
     class Stop:
