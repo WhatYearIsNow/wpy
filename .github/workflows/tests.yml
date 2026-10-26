@@ -21,6 +21,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # Validate the commit we would publish, not GitHub's synthetic merge identity.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Require PR head to include current main
+        if: github.event_name == 'pull_request'
+        run: git merge-base --is-ancestor origin/main HEAD
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
