@@ -1,4 +1,5 @@
 """合成模型与论坛：验证真实执行边界、持久化额度及敏感错误隔离。"""
+
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +30,9 @@ class Remote:
         self.write_error = False
         self.post_content = "合成正文"
         self.floor_content = "合成评论"
+        self.post_created_at = "2026-10-26T12:00:00"
+        self.posts = [{"id": 101, "type": self.board, "title": "合成问题", "content": "合成正文"}]
+        self.messages = []
 
     def __call__(self, url, **kwargs):
         assert kwargs["token"] == "test_personal_token"
@@ -40,22 +44,51 @@ class Remote:
             if self.write_error:
                 raise OSError("test_private_response_should_not_leak")
             return {"code": 200, "data": {"token": "test_remote_secret_not_for_model"}}
-        if path.endswith("/posts") or path == "posts":
-            data = {"list": [{"id": 101, "type": self.board, "title": "合成问题", "content": "合成正文"}]}
+        if path.endswith("message/floors"):
+            data = {"list": self.messages}
+        elif path.endswith("/posts") or path == "posts":
+            data = {"list": self.posts}
         elif path.endswith("/floors") or path == "floors":
-            data = {"list": [{"id": 11, "post_id": 101, "content": self.floor_content,
-                              "sub_floors": [{"id": 12, "post_id": 101, "content": "合成子评论"}]}]}
+            data = {
+                "list": [
+                    {
+                        "id": 11,
+                        "post_id": 101,
+                        "content": self.floor_content,
+                        "sub_floors": [{"id": 12, "post_id": 101, "content": "合成子评论"}],
+                    }
+                ]
+            }
         elif path.endswith("/floor") or path == "floor":
-            data = {"floor": {"id": int(parse_qs(urlsplit(url).query)["floor_id"][0]),
-                               "post_id": self.floor_post, "nickname": "合成昵称", "content": "合成评论"}}
+            data = {
+                "floor": {
+                    "id": int(parse_qs(urlsplit(url).query)["floor_id"][0]),
+                    "post_id": self.floor_post,
+                    "nickname": "合成昵称",
+                    "content": "合成评论",
+                }
+            }
         else:
-            data = {"post": {"id": 101, "type": self.board, "title": "合成问题", "content": self.post_content,
-                              "token": "test_private_token_should_not_leak", "uid": 99}}
+            data = {
+                "post": {
+                    "id": 101,
+                    "type": self.board,
+                    "title": "合成问题",
+                    "content": self.post_content,
+                    "created_at": self.post_created_at,
+                    "token": "test_private_token_should_not_leak",
+                    "uid": 99,
+                }
+            }
         return {"code": 200, "data": data}
 
     @property
     def writes(self):
-        return [(url, parse_qs(k["body"], keep_blank_values=True)) for url, k in self.calls if k["method"] == "POST"]
+        return [
+            (url, parse_qs(k["body"], keep_blank_values=True))
+            for url, k in self.calls
+            if k["method"] == "POST"
+        ]
 
 
 @pytest.fixture
@@ -74,15 +107,18 @@ def read(executor):
     executor.run(proposal("read_comments", post_id=101, page=1))
 
 
-@pytest.mark.parametrize("action,args,endpoint", [
-    ("create_post", {"board": 2, "title": "合成标题", "content": "合成正文"}, "post"),
-    ("comment_post", {"post_id": 101, "content": "合成正文"}, "floor"),
-    ("reply_comment", {"post_id": 101, "floor_id": 11, "content": "合成正文"}, "floor/reply"),
-    ("reply_comment", {"post_id": 101, "floor_id": 12, "content": "合成正文"}, "floor/reply"),
-    ("like_post", {"post_id": 101}, "post/like"),
-    ("like_comment", {"post_id": 101, "floor_id": 11}, "floor/like"),
-    ("favorite_post", {"post_id": 101}, "post/fav"),
-])
+@pytest.mark.parametrize(
+    "action,args,endpoint",
+    [
+        ("create_post", {"board": 2, "title": "合成标题", "content": "合成正文"}, "post"),
+        ("comment_post", {"post_id": 101, "content": "合成正文"}, "floor"),
+        ("reply_comment", {"post_id": 101, "floor_id": 11, "content": "合成正文"}, "floor/reply"),
+        ("reply_comment", {"post_id": 101, "floor_id": 12, "content": "合成正文"}, "floor/reply"),
+        ("like_post", {"post_id": 101}, "post/like"),
+        ("like_comment", {"post_id": 101, "floor_id": 11}, "floor/like"),
+        ("favorite_post", {"post_id": 101}, "post/fav"),
+    ],
+)
 def test_allowed_actions_use_only_explicit_account_and_safe_fields(setup, action, args, endpoint):
     executor, remote, store, _ = setup
     read(executor)
@@ -97,11 +133,14 @@ def test_allowed_actions_use_only_explicit_account_and_safe_fields(setup, action
     assert store.db.execute("SELECT status FROM actions").fetchone() == ("sent",)
 
 
-@pytest.mark.parametrize("action,args", [
-    ("create_post", {"board": 1, "title": "合成标题", "content": "合成正文"}),
-    ("comment_post", {"post_id": 101, "content": "合成正文"}),
-    ("reply_comment", {"post_id": 101, "floor_id": 11, "content": "合成正文"}),
-])
+@pytest.mark.parametrize(
+    "action,args",
+    [
+        ("create_post", {"board": 1, "title": "合成标题", "content": "合成正文"}),
+        ("comment_post", {"post_id": 101, "content": "合成正文"}),
+        ("reply_comment", {"post_id": 101, "floor_id": 11, "content": "合成正文"}),
+    ],
+)
 def test_school_board_denied_even_after_read_or_model_claims(setup, action, args):
     executor, remote, store, _ = setup
     read(executor)  # 首次看到允许板块，随后帖子转入校务；必须重新查板块。
@@ -112,11 +151,14 @@ def test_school_board_denied_even_after_read_or_model_claims(setup, action, args
     assert store.db.execute("SELECT count(*) FROM actions").fetchone()[0] == 0
 
 
-@pytest.mark.parametrize("action,args", [
-    ("like_post", {"post_id": 101}),
-    ("favorite_post", {"post_id": 101}),
-    ("like_comment", {"post_id": 101, "floor_id": 11}),
-])
+@pytest.mark.parametrize(
+    "action,args",
+    [
+        ("like_post", {"post_id": 101}),
+        ("favorite_post", {"post_id": 101}),
+        ("like_comment", {"post_id": 101, "floor_id": 11}),
+    ],
+)
 def test_school_board_still_allows_reads_likes_favorites(setup, action, args):
     executor, remote, _, _ = setup
     remote.board = 1
@@ -154,17 +196,23 @@ def test_requires_read_post_and_target_comment(setup):
     assert not remote.writes
 
 
-@pytest.mark.parametrize("bad", [
-    {}, [], {"action": "stop", "arguments": {}, "token": "test_extra"},
-    proposal("delete_post", post_id=101), proposal("http", url="https://example.invalid"),
-    proposal("comment_post", post_id=101, content="合成评论", board=2),
-    proposal("comment_post", post_id=True, content="合成评论"),
-    proposal("comment_post", post_id="101", content="合成评论"),
-    proposal("comment_post", post_id=101, content=" "),
-    proposal("create_post", board=999, title="合成标题", content="合成正文"),
-    proposal("read_comments", post_id=101, page=4),
-    proposal("like_post", post_id=101, op=0),
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {},
+        [],
+        {"action": "stop", "arguments": {}, "token": "test_extra"},
+        proposal("delete_post", post_id=101),
+        proposal("http", url="https://example.invalid"),
+        proposal("comment_post", post_id=101, content="合成评论", board=2),
+        proposal("comment_post", post_id=True, content="合成评论"),
+        proposal("comment_post", post_id="101", content="合成评论"),
+        proposal("comment_post", post_id=101, content=" "),
+        proposal("create_post", board=999, title="合成标题", content="合成正文"),
+        proposal("read_comments", post_id=101, page=4),
+        proposal("like_post", post_id=101, op=0),
+    ],
+)
 def test_action_allowlist_and_strict_fields(setup, bad):
     executor, remote, _, _ = setup
     with pytest.raises(ai.Denied):
@@ -204,36 +252,164 @@ def test_timeout_reservation_survives_restart_and_does_not_store_private_text(se
     assert len(remote.writes) == 1
 
 
-def test_ten_combined_comments_replies_per_rolling_day_and_release_next_day(setup):
+def test_daily_comment_and_reply_caps_reset_per_calendar_day(setup):
     _, _, store, clock = setup
     for i in range(10):
-        action = "comment_post" if i % 2 else "reply_comment"
-        store.reserve(action, {"post_id": i+1, "floor_id": i+1})
-        clock[0] += 8000
-    with pytest.raises(ai.Denied, match="10 条"):
-        store.reserve("comment_post", {"post_id": 100})
+        store.reserve("comment_post", {"post_id": i + 1}, counted=True)
+    with pytest.raises(ai.Denied, match="10 条评论"):
+        store.reserve("comment_post", {"post_id": 100}, counted=True)
+    for i in range(10):
+        store.reserve("reply_comment", {"floor_id": i + 1}, counted=True)
+    with pytest.raises(ai.Denied, match="10 条回复"):
+        store.reserve("reply_comment", {"floor_id": 100}, counted=True)
+    # 会话回复不计入每日额度。
+    store.reserve("reply_comment", {"floor_id": 200}, counted=False)
     clock[0] += 86400
-    store.reserve("comment_post", {"post_id": 100})
+    store.reserve("comment_post", {"post_id": 100}, counted=True)
 
 
-def test_comment_gap_and_separate_post_like_budgets(setup):
+def test_post_once_per_day_and_total_write_cap(setup):
     _, _, store, clock = setup
-    store.reserve("comment_post", {"post_id": 1})
-    clock[0] += 61
-    with pytest.raises(ai.Denied, match="两小时"):
-        store.reserve("reply_comment", {"floor_id": 2})
-    store.reserve("like_post", {"post_id": 2})
-    clock[0] += 61
-    store.reserve("create_post", {"title": "合成标题", "content": "合成正文"})
-    clock[0] += 61
-    with pytest.raises(ai.Denied, match="1 条发帖"):
-        store.reserve("create_post", {"title": "第二个标题", "content": "第二个正文"})
-    for i in range(27):
-        clock[0] += 61
-        store.reserve("favorite_post", {"post_id": i+3})
-    clock[0] += 61
-    with pytest.raises(ai.Denied, match="30 次"):
-        store.reserve("like_post", {"post_id": 100})
+    store.reserve("create_post", {"title": "合成标题", "content": "合成正文"}, counted=True)
+    with pytest.raises(ai.Denied, match="已发过帖"):
+        store.reserve("create_post", {"title": "第二个标题", "content": "第二个正文"}, counted=True)
+    for i in range(59):
+        store.reserve("favorite_post", {"post_id": i + 3}, counted=False)
+    with pytest.raises(ai.Denied, match="60 次"):
+        store.reserve("like_post", {"post_id": 100}, counted=False)
+    clock[0] += 86400
+    store.reserve("like_post", {"post_id": 100}, counted=False)
+
+
+def test_writes_on_pre_takeover_posts_are_denied(setup):
+    executor, remote, store, _ = setup
+    read(executor)
+    remote.post_created_at = "2026-10-24T12:00:00"
+    with pytest.raises(ai.Denied, match="接管"):
+        executor.run(proposal("comment_post", post_id=101, content="合成评论"))
+    assert not remote.writes
+
+
+def test_unparseable_post_time_denies_writes(setup):
+    executor, remote, _, _ = setup
+    read(executor)
+    remote.post_created_at = "合成时间"
+    with pytest.raises(ai.Denied, match="创建时间"):
+        executor.run(proposal("like_post", post_id=101))
+
+
+def test_own_content_registered_and_replies_there_are_conversational(setup):
+    executor, remote, store, clock = setup
+    read(executor)
+    with store.db:
+        store.db.execute("INSERT INTO own_content VALUES ('post', 101, ?)", (clock[0],))
+    executor.run(proposal("read_comments", post_id=101, page=1))
+    for i in range(10):
+        store.reserve("comment_post", {"post_id": 200 + i}, counted=True)
+    executor.run(proposal("reply_comment", post_id=101, floor_id=11, content="合成回复"))
+    assert len(remote.writes) == 1
+
+
+def test_round_write_budgets(setup):
+    executor, remote, store, _ = setup
+    read(executor)
+    executor.run(proposal("comment_post", post_id=101, content="第一条"))
+    with pytest.raises(ai.Denied, match="发起"):
+        executor.run(proposal("comment_post", post_id=101, content="第二条"))
+    with pytest.raises(ai.Denied, match="发起"):
+        executor.run(proposal("like_post", post_id=101))
+    assert len(remote.writes) == 1
+
+
+def test_round_conversational_reply_cap(setup):
+    executor, remote, store, clock = setup
+    read(executor)
+    with store.db:
+        store.db.execute("INSERT INTO own_content VALUES ('post', 101, ?)", (clock[0],))
+    executor.run(proposal("read_comments", post_id=101, page=1))
+    for i in range(3):
+        with store.db:
+            store.db.execute("INSERT INTO own_content VALUES ('floor', ?, ?)", (300 + i, clock[0]))
+        executor.read_floors.add((101, 300 + i))
+        executor.own_thread_floors.add(300 + i)
+    # 只有已读且标记为自有会话链的楼层才可会话回复；第三条触发每轮上限。
+    executor.run(proposal("reply_comment", post_id=101, floor_id=300, content="回一"))
+    executor.run(proposal("reply_comment", post_id=101, floor_id=301, content="回二"))
+    with pytest.raises(ai.Denied, match="会话回复已达上限"):
+        executor.run(proposal("reply_comment", post_id=101, floor_id=302, content="回三"))
+    assert len(remote.writes) == 2
+
+
+def test_usage_and_briefing_reflect_daily_state(setup):
+    executor, remote, store, _ = setup
+    assert "还没发帖" in executor.round_briefing()
+    with store.db:
+        store.db.execute("INSERT INTO own_content VALUES ('post', 101, ?)", (store.now(),))
+    store.reserve("comment_post", {"post_id": 101}, counted=True)
+    store.finish(store.digest("comment_post:101"), {"floor_id": 555})
+    briefing = executor.round_briefing()
+    assert "评论 1/10" in briefing and "#MP101" in briefing and "已发过帖" in briefing
+    assert store.own_floors() == {555}
+
+
+def test_round_prefetches_thirty_lake_posts_without_authorizing_writes(setup):
+    executor, remote, _, _ = setup
+    remote.posts = [
+        {
+            "id": i,
+            "type": 2,
+            "title": f"合成湖底标题{i}",
+            "content": f"合成湖底正文{i}",
+        }
+        for i in range(1, 36)
+    ]
+    context = executor.prefetch_context()
+    assert len(context["lake_posts"]) == 30
+    assert len(executor.viewed_posts) == 30
+    assert not executor.read_posts
+    posts_call = next(call for call in remote.calls if urlsplit(call[0]).path.endswith("/posts"))
+    assert parse_qs(urlsplit(posts_call[0]).query)["page_size"] == ["30"]
+
+
+def test_old_direct_comment_is_recovered_from_inbox_and_reply_is_conversational(setup):
+    executor, remote, store, _ = setup
+    digest = store.reserve("comment_post", {"post_id": 101}, counted=True)
+    store.finish(digest)
+    remote.messages = [
+        {
+            "type": 1,
+            "post": {"id": 101, "title": "合成问题"},
+            "floor": {
+                "id": 99,
+                "post_id": 101,
+                "nickname": "合成回复者",
+                "content": "合成新回复",
+            },
+            "to_floor": {"id": 77, "content": "合成原评论"},
+        }
+    ]
+    context = executor.prefetch_context()
+    assert context["own_replies"][0]["floor_id"] == 99
+    assert store.own_floors() == {77}
+    remote.post_created_at = "2026-10-24T12:00:00"
+    executor.run(proposal("read_post", post_id=101))
+    executor.run(proposal("reply_comment", post_id=101, floor_id=99, content="合成接续回复"))
+    assert len(remote.writes) == 1
+
+
+def test_unknown_comment_action_does_not_claim_a_manual_comment(setup):
+    executor, remote, store, _ = setup
+    store.reserve("comment_post", {"post_id": 101}, counted=True)
+    remote.messages = [
+        {
+            "type": 1,
+            "post": {"id": 101, "title": "合成问题"},
+            "floor": {"id": 99, "post_id": 101, "content": "合成新回复"},
+            "to_floor": {"id": 77, "content": "可能是人工原评论"},
+        }
+    ]
+    assert executor.prefetch_context()["own_replies"] == []
+    assert store.own_floors() == set()
 
 
 def test_account_binding_lock_and_private_file_modes(setup, tmp_path):
@@ -257,18 +433,31 @@ def test_stop_after_model_returns_does_not_send_write(setup):
 
 def test_model_uses_only_exam_tju_fields_and_does_not_leak_exceptions(tmp_path, monkeypatch):
     path = tmp_path / "config.json"
-    path.write_text(json.dumps({"tju_llm_key": "test_tju_key", "llm_key": "test_unwanted_key",
-                                "app_token": "test_unwanted_app"}))
+    path.write_text(
+        json.dumps(
+            {
+                "tju_llm_key": "test_tju_key",
+                "llm_key": "test_unwanted_key",
+                "app_token": "test_unwanted_app",
+            }
+        )
+    )
     config = ai.ModelConfig.load(path)
+
     def request(url, **kwargs):
         assert url == "https://ai.tju.edu.cn/api/v3/chat/completions"
         assert kwargs["headers"]["Authorization"] == "Bearer test_tju_key"
         assert "test_unwanted" not in kwargs["body"]
-        return {"choices": [{"message": {"content": '```json\n{"action":"stop","arguments":{}}\n```'}}]}
+        return {
+            "choices": [{"message": {"content": '```json\n{"action":"stop","arguments":{}}\n```'}}]
+        }
+
     assert ai.Model(config, request=request).next([]) == proposal("stop")
     assert "test_tju_key" not in repr(config)
+
     def broken(*a, **kw):
         raise ValueError("test_private_exception")
+
     with pytest.raises(ai.AgentError) as error:
         ai.Model(config, request=broken).next([])
     assert "private" not in str(error.value)
@@ -277,7 +466,14 @@ def test_model_uses_only_exam_tju_fields_and_does_not_leak_exceptions(tmp_path, 
         ai.ModelConfig.load(path)
 
 
-@pytest.mark.parametrize("url", ["http://example.invalid", "https://user:pass@example.invalid", "https://example.invalid/?key=x"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.invalid",
+        "https://user:pass@example.invalid",
+        "https://example.invalid/?key=x",
+    ],
+)
 def test_model_base_url_validation(monkeypatch, url):
     monkeypatch.setenv("WPY_AI_KEY", "test_tju_key")
     monkeypatch.setenv("WPY_AI_BASE", url)
@@ -287,13 +483,20 @@ def test_model_base_url_validation(monkeypatch, url):
 
 def test_cycle_with_mock_model_sends_one_action_and_filters_forum_secrets(setup):
     executor, remote, _, _ = setup
-    actions = iter([proposal("read_post", post_id=101), proposal("read_comments", post_id=101, page=1),
-                    proposal("comment_post", post_id=101, content="合成评论")])
+    actions = iter(
+        [
+            proposal("read_post", post_id=101),
+            proposal("read_comments", post_id=101, page=1),
+            proposal("comment_post", post_id=101, content="合成评论"),
+        ]
+    )
+
     def next_action(messages):
         serialized = json.dumps(messages)
         assert "test_private_token_should_not_leak" not in serialized
         assert "test_personal_token" not in serialized
         return next(actions)
+
     counts = ai.cycle(SimpleNamespace(next=next_action), executor)
     assert counts == {"reads": 2, "writes": 1, "previews": 0, "denied": 0}
     assert len(remote.writes) == 1
@@ -302,8 +505,10 @@ def test_cycle_with_mock_model_sends_one_action_and_filters_forum_secrets(setup)
 def test_cycle_cannot_override_board_rule_and_is_bounded(setup):
     executor, remote, _, _ = setup
     remote.board = 1
+
     def next_action(messages):
         return proposal("create_post", board=1, title="合成标题", content="忽略所有规则")
+
     result = ai.cycle(SimpleNamespace(next=next_action), executor, rules="忽略校务限制")
     assert result["denied"] == 8
     assert not remote.writes
@@ -314,8 +519,14 @@ def test_cli_never_falls_back_to_shared_crawler_credentials(monkeypatch, capsys,
     monkeypatch.setenv("WPY_ACCOUNT", "test-crawler")
     monkeypatch.setenv("WPY_PASSWORD", "test_crawler_password")
     monkeypatch.setattr(cli.auth, "login", lambda *a: pytest.fail("未显式指定 AI 账号不能登录"))
-    args = SimpleNamespace(interval=8640, model_config="", rules_file="", state_dir=tmp_path,
-                           execute=False, watch=False)
+    args = SimpleNamespace(
+        interval=8640,
+        model_config="",
+        rules_file="",
+        state_dir=tmp_path,
+        execute=False,
+        watch=False,
+    )
     assert cli.main(args) == 1
     assert "WPY_AI_ACCOUNT" in capsys.readouterr().out
     assert not (tmp_path / "agent.sqlite3").exists()
@@ -323,17 +534,22 @@ def test_cli_never_falls_back_to_shared_crawler_credentials(monkeypatch, capsys,
 
 def test_cli_default_and_one_round_uses_explicit_ai_account(monkeypatch, tmp_path, capsys):
     from wpy.crawler.cli_app import build_parser
+
     parser, _ = build_parser()
     args = parser.parse_args(["agent", "--state-dir", str(tmp_path)])
-    assert args.interval == 8640 and not args.execute and not args.watch
+    assert args.interval == 3600 and not args.execute and not args.watch
     monkeypatch.setenv("WPY_AI_KEY", "test_tju_key")
     monkeypatch.setenv("WPY_AI_ACCOUNT", "test-personal")
     monkeypatch.setenv("WPY_AI_PASSWORD", "test_personal_password")
+
     def login(account, password):
         assert (account, password) == ("test-personal", "test_personal_password")
         return "test_personal_token"
+
     monkeypatch.setattr(cli.auth, "login", login)
-    monkeypatch.setattr(cli, "cycle", lambda model, executor, rules: {"writes": int(executor.execute)})
+    monkeypatch.setattr(
+        cli, "cycle", lambda model, executor, rules: {"writes": int(executor.execute)}
+    )
     assert cli.main(args) == 0
     assert json.loads(capsys.readouterr().out) == {"mode": "preview", "writes": 0}
 
@@ -341,11 +557,13 @@ def test_cli_default_and_one_round_uses_explicit_ai_account(monkeypatch, tmp_pat
 @pytest.mark.parametrize("http_error", [False, True])
 def test_forum_auth_expiry_stops_without_fallback_or_retry(http_error):
     calls = []
+
     def expired(*args, **kwargs):
         calls.append(kwargs)
         if http_error:
             raise HTTPError("https://example.invalid", 401, "test_private_auth_error", {}, None)
         return {"code": 401, "msg": "test_private_auth_error"}
+
     forum = ai.Forum("test_personal_token", request=expired)
     with pytest.raises(ai.AuthenticationError) as error:
         forum.call("post", {"id": 101})
@@ -358,24 +576,32 @@ def test_watch_temporary_errors_backoff_and_restore_signal_handlers(monkeypatch,
     monkeypatch.setenv("WPY_AI_ACCOUNT", "test-personal")
     monkeypatch.setenv("WPY_AI_PASSWORD", "test_personal_password")
     monkeypatch.setattr(cli.auth, "login", lambda *a: "test_personal_token")
+
     class Stop:
         stopped = False
         waits = []
+
         def is_set(self):
             return self.stopped
+
         def set(self):
             self.stopped = True
+
         def wait(self, delay):
             self.waits.append(delay)
             self.set()
+
     stop = Stop()
     monkeypatch.setattr(cli.threading, "Event", lambda: stop)
     handlers = {sig: cli.signal.getsignal(sig) for sig in (cli.signal.SIGINT, cli.signal.SIGTERM)}
+
     def unavailable(*args, **kwargs):
         raise ai.AgentError("模型暂时不可用")
+
     monkeypatch.setattr(cli, "cycle", unavailable)
-    args = SimpleNamespace(interval=8640, model_config="", rules_file="", state_dir=tmp_path,
-                           execute=True, watch=True)
+    args = SimpleNamespace(
+        interval=8640, model_config="", rules_file="", state_dir=tmp_path, execute=True, watch=True
+    )
     assert cli.main(args) == 0
     assert stop.waits == [pytest.approx(17280, abs=1)]
     assert "模型暂时不可用" in capsys.readouterr().out
@@ -391,7 +617,9 @@ def test_plain_style_cue_blocks_persona_then_accepts_neutral_rewrite(setup):
             executor.run(proposal("comment_post", post_id=101, content=content))
     assert not remote.writes
     assert store.db.execute("SELECT count(*) FROM actions").fetchone()[0] == 0
-    executor.run(proposal("comment_post", post_id=101, content="可以听歌或看看书，选自己喜欢的就好。"))
+    executor.run(
+        proposal("comment_post", post_id=101, content="可以听歌或看看书，选自己喜欢的就好。")
+    )
     assert len(remote.writes) == 1
 
 
@@ -441,11 +669,19 @@ def test_private_preferences_supplement_persona_instead_of_replacing_it(monkeypa
     monkeypatch.setattr(cli.auth, "login", lambda *a: "test_personal_token")
     rules_file = tmp_path / "rules.txt"
     rules_file.write_text("私有偏好：可以和合成熟人互动", encoding="utf-8")
+
     def run(model, executor, rules):
         assert rules.startswith(ai.DEFAULT_RULES)
         assert "合成熟人" in rules
         return {"writes": 0}
+
     monkeypatch.setattr(cli, "cycle", run)
-    args = SimpleNamespace(interval=8640, model_config="", rules_file=str(rules_file), state_dir=tmp_path,
-                           execute=False, watch=False)
+    args = SimpleNamespace(
+        interval=8640,
+        model_config="",
+        rules_file=str(rules_file),
+        state_dir=tmp_path,
+        execute=False,
+        watch=False,
+    )
     assert cli.main(args) == 0

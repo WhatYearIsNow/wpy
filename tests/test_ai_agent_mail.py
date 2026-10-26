@@ -70,6 +70,10 @@ def test_each_action_generates_exactly_one_truthful_report(setup, action, args):
         assert "大肥鱼回复的内容" in text
     if action != "create_post":
         assert "#MP101" in text
+        assert "帖子内容：合成正文" in text
+        assert text.index("帖子标题：") < text.index("帖子内容：")
+        if action in ai.SPEECH:
+            assert text.index("帖子内容：") < text.index(args["content"])
     assert "test_personal_token" not in text and "test_remote_secret" not in text
     assert store.db.execute("SELECT payload FROM agent_mail").fetchone()[0] == "{}"
     assert mail.deliver(store, lambda *v: pytest.fail("不应重复发信"))["sent"] == 0
@@ -167,6 +171,21 @@ def test_render_escapes_forum_text_and_does_not_put_titles_in_subject():
     )
     assert "script" not in subject and "<script>" not in body
     assert "&lt;script&gt;" in body and "<b>合成评论</b>" in text
+
+
+def test_empty_post_body_keeps_the_requested_mail_row():
+    _, text, _ = mail.render(
+        {
+            "kind": "comment_post",
+            "at": 1000,
+            "post_id": 101,
+            "title": "合成标题",
+            "post_content": "",
+            "content": "合成评论",
+            "outcome": "accepted",
+        }
+    )
+    assert "帖子标题：合成标题\n帖子内容：[纯图片帖子或正文为空]" in text
 
 
 def test_sender_name_is_big_fish_and_existing_mail_default_unchanged(monkeypatch):
@@ -376,7 +395,7 @@ def test_cli_reports_sent_text_by_email_without_logging_it(monkeypatch, tmp_path
     assert "test_private_sent_body" not in capsys.readouterr().out
 
 
-def test_browse_only_round_reports_read_targets_without_claiming_a_write(monkeypatch, tmp_path):
+def test_browse_only_round_does_not_send_an_action_email(monkeypatch, tmp_path):
     args = configure_cli(monkeypatch, tmp_path)
     sent = []
     monkeypatch.setattr(cli.auth, "login", lambda *a: "test_personal_token")
@@ -388,5 +407,4 @@ def test_browse_only_round_reports_read_targets_without_claiming_a_write(monkeyp
 
     monkeypatch.setattr(cli, "cycle", browse)
     assert cli.main(args) == 0
-    assert sent[0][0] == "大肥鱼逛了逛湖底"
-    assert "#MP101 合成闲聊" in sent[0][1] and "没有新增论坛互动" in sent[0][1]
+    assert sent == []

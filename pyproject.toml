@@ -47,11 +47,6 @@ target-version = "py310"
 line-length = 100
 include = ["wpy/**/*.py", "tests/**/*.py", "scripts/**/*.py", "tools/**/*.py", "ask.py"]
 force-exclude = true
-# Existing uncommitted work is outside this mechanical-format batch.
-extend-exclude = [
-    "wpy/ai_agent.py", "wpy/ai_agent_cli.py", "wpy/ai_agent_mail.py",
-    "tests/test_ai_agent.py",
-]
 
 [tool.ruff.lint]
 # Start with syntax errors. Do not reorder imports or change existing error handling.
