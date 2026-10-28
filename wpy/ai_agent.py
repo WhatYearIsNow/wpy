@@ -637,15 +637,31 @@ class Executor:
             pid = post.get("id")
             if type(pid) is int and pid > 0:
                 self.viewed_posts[pid] = {"id": pid, "title": post.get("title") or ""}
+                title = str(post.get("title") or "").strip()
+                content = str(post.get("content") or "").strip()
+                if (
+                    title
+                    and content
+                    and self.store.action_exists(
+                        "create_post", {"title": title, "content": content}, sent_only=True
+                    )
+                ):
+                    self.store.remember_owned("post", pid)
 
-        inbox = self.forum.call("message/floors", {"page": 1, "page_size": 20})
-        inbox_rows = inbox.get("list")
-        if not isinstance(inbox_rows, list):
-            raise AgentError("评论消息列表格式无效")
+        inbox_rows = []
+        for page in range(1, 6):
+            inbox = self.forum.call("message/floors", {"page": page, "page_size": 20})
+            rows = inbox.get("list")
+            if not isinstance(rows, list):
+                raise AgentError("评论消息列表格式无效")
+            inbox_rows.extend(rows)
+            if len(rows) < 20:
+                break
         own_posts = self.store.own_posts()
         own_floors = self.store.own_floors()
         own_replies = []
-        for row in inbox_rows[:20]:
+        seen_floors = set()
+        for row in inbox_rows:
             if not isinstance(row, dict):
                 continue
             post = row.get("post") or {}
@@ -657,7 +673,29 @@ class Executor:
                 fid = integer(floor.get("id"), "消息评论")
             except Denied:
                 continue
+            if fid in seen_floors:
+                continue
+            seen_floors.add(fid)
             original_id = None
+            if kind_type == 0 and pid not in own_posts:
+                title = str(post.get("title") or "").strip()
+                content = str(post.get("content") or "").strip()
+                if not title or not content:
+                    try:
+                        detail = self.forum.post(pid)
+                    except AgentError:
+                        detail = {}
+                    title = str(detail.get("title") or "").strip()
+                    content = str(detail.get("content") or "").strip()
+                if (
+                    title
+                    and content
+                    and self.store.action_exists(
+                        "create_post", {"title": title, "content": content}, sent_only=True
+                    )
+                ):
+                    self.store.remember_owned("post", pid)
+                    own_posts.add(pid)
             relevant = kind_type == 0 and pid in own_posts
             if kind_type == 1:
                 try:
@@ -687,7 +725,44 @@ class Executor:
                     "created_at": floor.get("created_at"),
                 }
             )
+            if len(own_replies) >= 20:
+                break
         return {"lake_posts": lake_posts, "own_replies": own_replies}
+
+    def resolve_created_post(self, args):
+        """发帖接口未返回 ID 时，只在近期列表中精确匹配唯一的新帖。"""
+        try:
+            data = self.forum.call(
+                "posts",
+                {
+                    "type": args["board"],
+                    "page": 1,
+                    "page_size": 30,
+                    "search_mode": 0,
+                    "etag": "",
+                    "content": "",
+                    "tag_id": "",
+                    "department_id": "",
+                },
+            )
+            rows = data.get("list")
+            if not isinstance(rows, list):
+                return None
+            matches = []
+            now = self.store.now()
+            for post in rows:
+                if not isinstance(post, dict):
+                    continue
+                if post.get("title") != args["title"] or post.get("content") != args["content"]:
+                    continue
+                if integer(post.get("type"), "远端板块") != args["board"]:
+                    continue
+                if abs(parse_post_time(post) - now) > 600:
+                    continue
+                matches.append(integer(post.get("id"), "远端帖号"))
+            return matches[0] if len(set(matches)) == 1 else None
+        except AgentError:
+            return None
 
     def observe_style(self, pid, *contents):
         cue = any(
@@ -843,6 +918,7 @@ class Executor:
                 "floor_id": args.get("floor_id"),
                 "target_floor_id": args.get("floor_id"),
                 "title": args.get("title") if action == "create_post" else post.get("title"),
+                "post_author": "大肥鱼" if action == "create_post" else post.get("nickname"),
                 "post_content": post_content,
                 "content": form.get("content", ""),
             }
@@ -863,6 +939,10 @@ class Executor:
             self.round_counted += 1
         self.last_write_conversational = conversational
         result = self.forum.call(path, form, write=True)
+        if action == "create_post" and not result.get("post_id"):
+            created_post_id = self.resolve_created_post(args)
+            if created_post_id:
+                result["post_id"] = created_post_id
         self.store.finish(digest, result)
         return result
 

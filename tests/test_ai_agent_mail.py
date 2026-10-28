@@ -63,15 +63,21 @@ def test_each_action_generates_exactly_one_truthful_report(setup, action, args):
     subject, text, html, message_id = sent[0]
     assert subject == mail.LABELS[action] and subject.startswith("大肥鱼")
     assert "论坛已接受该操作" in text
+    assert "评论编号" not in text and "互动目标评论" not in text
     if action in ai.SPEECH:
         assert args["content"] in text and "AI 助手生成" not in text
     if action == "reply_comment":
         assert "被回复者：合成昵称" in text and "原评论：合成评论" in text
         assert "大肥鱼回复的内容" in text
-    if action != "create_post":
+    if action == "create_post":
+        assert "帖子发出者：大肥鱼" in text
+        assert text.count("帖子内容：") == 1
+        assert text.index("帖子标题：") < text.index("帖子发出者：") < text.index("帖子内容：")
+    else:
         assert "#MP101" in text
+        assert "帖子发出者：合成发帖者" in text
         assert "帖子内容：合成正文" in text
-        assert text.index("帖子标题：") < text.index("帖子内容：")
+        assert text.index("帖子标题：") < text.index("帖子发出者：") < text.index("帖子内容：")
         if action in ai.SPEECH:
             assert text.index("帖子内容：") < text.index(args["content"])
     assert "test_personal_token" not in text and "test_remote_secret" not in text
@@ -180,12 +186,13 @@ def test_empty_post_body_keeps_the_requested_mail_row():
             "at": 1000,
             "post_id": 101,
             "title": "合成标题",
+            "post_author": "合成发帖者",
             "post_content": "",
             "content": "合成评论",
             "outcome": "accepted",
         }
     )
-    assert "帖子标题：合成标题\n帖子内容：[纯图片帖子或正文为空]" in text
+    assert "帖子标题：合成标题\n帖子发出者：合成发帖者\n帖子内容：[纯图片帖子或正文为空]" in text
 
 
 def test_sender_name_is_big_fish_and_existing_mail_default_unchanged(monkeypatch):
@@ -361,7 +368,7 @@ def test_reply_mail_distinguishes_target_and_new_comment(setup):
     assert "大肥鱼回复的内容：合成回复" in text and "互动目标评论" not in text
 
 
-def test_reply_mail_without_context_keeps_target_floor_row(setup):
+def test_reply_mail_without_context_does_not_expose_internal_floor_number(setup):
     _, _, store, _ = setup
     digest = store.reserve(
         "reply_comment",
@@ -369,7 +376,8 @@ def test_reply_mail_without_context_keeps_target_floor_row(setup):
         report={"post_id": 101, "target_floor_id": 11, "floor_id": 11, "content": "合成回复"},
     )
     event = json.loads(store.db.execute("SELECT payload FROM agent_mail").fetchone()[0])
-    assert "互动目标评论：11" in mail.render(event)[1] and "被回复者" not in mail.render(event)[1]
+    text = mail.render(event)[1]
+    assert "互动目标评论" not in text and "评论编号" not in text and "被回复者" not in text
 
 
 def test_cli_reports_sent_text_by_email_without_logging_it(monkeypatch, tmp_path, capsys):

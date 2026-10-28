@@ -29,6 +29,9 @@ CONTENT_LABELS = {
     "comment_post": "大肥鱼评论的内容",
     "reply_comment": "大肥鱼回复的内容",
 }
+POST_ACTIONS = frozenset(
+    {"create_post", "comment_post", "reply_comment", "like_post", "like_comment", "favorite_post"}
+)
 TZ = timezone(timedelta(hours=8))
 
 
@@ -91,16 +94,14 @@ def render(event):
         rows.append(("帖子", "#MP" + str(event["post_id"])))
     if event.get("title"):
         rows.append(("帖子标题", event["title"]))
-    if "post_content" in event:
+    if kind in POST_ACTIONS:
+        rows.append(("帖子发出者", event.get("post_author") or "[发出者暂不可用]"))
+    if "post_content" in event and kind != "create_post":
         rows.append(("帖子内容", event.get("post_content") or "[纯图片帖子或正文为空]"))
     if event.get("target_author"):
         rows.append(("被回复者", event["target_author"]))
     if event.get("target_content"):
         rows.append(("原评论", event["target_content"]))
-    if event.get("floor_id") and kind != "reply_comment":
-        rows.append(("评论编号", str(event["floor_id"])))
-    if event.get("target_floor_id") and not event.get("target_content"):
-        rows.append(("互动目标评论", str(event["target_floor_id"])))
     if event.get("content"):
         rows.append((CONTENT_LABELS.get(kind, "大肥鱼发出的内容"), event["content"]))
     if "reads" in event:

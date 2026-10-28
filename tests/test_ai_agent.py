@@ -45,7 +45,10 @@ class Remote:
                 raise OSError("test_private_response_should_not_leak")
             return {"code": 200, "data": {"token": "test_remote_secret_not_for_model"}}
         if path.endswith("message/floors"):
-            data = {"list": self.messages}
+            query = parse_qs(urlsplit(url).query)
+            page = int(query.get("page", [1])[0])
+            size = int(query.get("page_size", [20])[0])
+            data = {"list": self.messages[(page - 1) * size : page * size]}
         elif path.endswith("/posts") or path == "posts":
             data = {"list": self.posts}
         elif path.endswith("/floors") or path == "floors":
@@ -73,6 +76,7 @@ class Remote:
                 "post": {
                     "id": 101,
                     "type": self.board,
+                    "nickname": "合成发帖者",
                     "title": "合成问题",
                     "content": self.post_content,
                     "created_at": self.post_created_at,
@@ -310,6 +314,26 @@ def test_own_content_registered_and_replies_there_are_conversational(setup):
     assert len(remote.writes) == 1
 
 
+def test_created_post_without_response_id_is_resolved_from_recent_exact_match(setup):
+    executor, remote, store, clock = setup
+    read(executor)
+    remote.posts = [
+        {
+            "id": 808,
+            "type": 2,
+            "nickname": "合成发帖者",
+            "title": "合成新帖",
+            "content": "合成新帖正文",
+            "created_at": clock[0],
+        }
+    ]
+    result = executor.run(
+        proposal("create_post", board=2, title="合成新帖", content="合成新帖正文")
+    )
+    assert result["post_id"] == 808
+    assert store.own_posts() == {808}
+
+
 def test_round_write_budgets(setup):
     executor, remote, store, _ = setup
     read(executor)
@@ -395,6 +419,41 @@ def test_old_direct_comment_is_recovered_from_inbox_and_reply_is_conversational(
     executor.run(proposal("read_post", post_id=101))
     executor.run(proposal("reply_comment", post_id=101, floor_id=99, content="合成接续回复"))
     assert len(remote.writes) == 1
+
+
+def test_ai_post_comment_on_second_inbox_page_is_recovered_and_prioritized(setup):
+    executor, remote, store, _ = setup
+    digest = store.reserve(
+        "create_post", {"title": "合成问题", "content": "合成正文"}, counted=True
+    )
+    store.finish(digest)
+    remote.messages = [
+        {
+            "type": 1,
+            "post": {"id": 900 + i, "title": "其他帖子"},
+            "floor": {"id": 2000 + i, "post_id": 900 + i, "content": "其他回复"},
+            "to_floor": {"id": 3000 + i, "content": "其他原评论"},
+        }
+        for i in range(20)
+    ] + [
+        {
+            "type": 0,
+            "post": {"id": 101, "title": "合成问题"},
+            "floor": {
+                "id": 99,
+                "post_id": 101,
+                "nickname": "合成评论者",
+                "content": "合成新评论",
+            },
+        }
+    ]
+    context = executor.prefetch_context()
+    assert context["own_replies"][0]["floor_id"] == 99
+    assert store.own_posts() == {101}
+    message_calls = [
+        call for call in remote.calls if urlsplit(call[0]).path.endswith("message/floors")
+    ]
+    assert len(message_calls) == 2
 
 
 def test_unknown_comment_action_does_not_claim_a_manual_comment(setup):
