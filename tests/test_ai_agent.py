@@ -551,9 +551,11 @@ def test_cycle_with_mock_model_sends_one_action_and_filters_forum_secrets(setup)
     )
 
     def next_action(messages):
-        serialized = json.dumps(messages)
+        serialized = json.dumps(messages, ensure_ascii=False)
         assert "test_private_token_should_not_leak" not in serialized
         assert "test_personal_token" not in serialized
+        assert "第一人称使用‘我’" in serialized
+        assert "禁止出现‘本鲸’" in serialized
         return next(actions)
 
     counts = ai.cycle(SimpleNamespace(next=next_action), executor)
@@ -671,7 +673,9 @@ def test_plain_style_cue_blocks_persona_then_accepts_neutral_rewrite(setup):
     executor, remote, store, _ = setup
     remote.post_content = "别演了，正经点，合成日常闲聊。"
     read(executor)
-    for content in ("本鲸记下了。", "可以捏！", "这条大肥鱼来了"):
+    with pytest.raises(ai.Denied, match="禁止使用.*本鲸"):
+        executor.run(proposal("comment_post", post_id=101, content="本鲸记下了。"))
+    for content in ("可以捏！", "这条大肥鱼来了"):
         with pytest.raises(ai.Denied, match="正常助手语气"):
             executor.run(proposal("comment_post", post_id=101, content=content))
     assert not remote.writes
@@ -693,7 +697,7 @@ def test_comment_style_preference_survives_restart_without_storing_text(setup, t
         other = ai.Executor(executor.forum, reopened, execute=True)
         read(other)
         with pytest.raises(ai.Denied, match="正常助手语气"):
-            other.run(proposal("comment_post", post_id=101, content="本鲸回来了。"))
+            other.run(proposal("comment_post", post_id=101, content="大肥鱼回来了。"))
         assert "test_private_style_comment" not in "\n".join(reopened.db.iterdump())
     finally:
         reopened.close()
@@ -706,6 +710,17 @@ def test_public_display_names_are_available_for_style_and_friend_preferences():
     assert ai.floor_view(floor)["nickname"] == "合成评论者"
     assert "uid" not in ai.post_view(post) and "token" not in ai.post_view(post)
     assert "uid" not in ai.floor_view(floor)
+
+
+def test_benjing_is_globally_blocked_and_natural_first_person_is_allowed(setup):
+    executor, remote, store, _ = setup
+    read(executor)
+    with pytest.raises(ai.Denied, match="禁止使用.*本鲸"):
+        executor.run(proposal("comment_post", post_id=101, content="本鲸觉得挺有意思。"))
+    assert not remote.writes
+    assert store.db.execute("SELECT count(*) FROM actions").fetchone()[0] == 0
+    executor.run(proposal("comment_post", post_id=101, content="我觉得挺有意思，可以再聊聊。"))
+    assert len(remote.writes) == 1
 
 
 def test_comment_and_new_post_require_reading_discussion_context(setup):
