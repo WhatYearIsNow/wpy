@@ -30,6 +30,7 @@ class Remote:
         self.write_error = False
         self.post_content = "合成正文"
         self.floor_content = "合成评论"
+        self.floor_uid = 888
         self.post_created_at = "2026-10-26T12:00:00"
         self.posts = [{"id": 101, "type": self.board, "title": "合成问题", "content": "合成正文"}]
         self.messages = []
@@ -57,8 +58,11 @@ class Remote:
                     {
                         "id": 11,
                         "post_id": 101,
+                        "uid": 888,
                         "content": self.floor_content,
-                        "sub_floors": [{"id": 12, "post_id": 101, "content": "合成子评论"}],
+                        "sub_floors": [
+                            {"id": 12, "post_id": 101, "uid": 889, "content": "合成子评论"}
+                        ],
                     }
                 ]
             }
@@ -67,6 +71,7 @@ class Remote:
                 "floor": {
                     "id": int(parse_qs(urlsplit(url).query)["floor_id"][0]),
                     "post_id": self.floor_post,
+                    "uid": self.floor_uid,
                     "nickname": "合成昵称",
                     "content": "合成评论",
                 }
@@ -215,6 +220,8 @@ def test_requires_read_post_and_target_comment(setup):
         proposal("create_post", board=999, title="合成标题", content="合成正文"),
         proposal("read_comments", post_id=101, page=4),
         proposal("like_post", post_id=101, op=0),
+        proposal("defer_reply", post_id=101, floor_id=11, reason=[]),
+        proposal("defer_reply", post_id=101, floor_id=11, reason="anything"),
     ],
 )
 def test_action_allowlist_and_strict_fields(setup, bad):
@@ -314,6 +321,87 @@ def test_own_content_registered_and_replies_there_are_conversational(setup):
     assert len(remote.writes) == 1
 
 
+def test_self_post_comment_and_self_floor_reply_are_hard_blocked(setup):
+    executor, remote, store, clock = setup
+    store.remember_owned("post", 101, at=clock[0])
+    store.remember_owned("floor", 11, at=clock[0])
+    executor.account_uids.add(99)
+    read(executor)
+    with pytest.raises(ai.Denied, match="自己的帖子"):
+        executor.run(proposal("comment_post", post_id=101, content="不能自言自语"))
+    with pytest.raises(ai.Denied, match="自己的评论"):
+        executor.run(proposal("reply_comment", post_id=101, floor_id=11, content="不能自回复"))
+    remote.floor_uid = 99
+    with pytest.raises(ai.Denied, match="自己的评论"):
+        executor.run(proposal("reply_comment", post_id=101, floor_id=12, content="也不能回自己"))
+    assert not remote.writes
+
+
+def test_prefetch_filters_self_messages_and_keeps_external_replies(setup):
+    executor, remote, store, clock = setup
+    store.remember_owned("post", 101, at=clock[0])
+    remote.messages = [
+        {
+            "type": 0,
+            "post": {"id": 101, "title": "合成问题", "content": "合成正文"},
+            "floor": {"id": 98, "post_id": 101, "uid": 99, "content": "自己的评论"},
+        },
+        {
+            "type": 0,
+            "post": {"id": 101, "title": "合成问题", "content": "合成正文"},
+            "floor": {"id": 99, "post_id": 101, "uid": 888, "content": "别人的评论"},
+        },
+    ]
+    context = executor.prefetch_context()
+    assert [row["floor_id"] for row in context["own_replies"]] == [99]
+    assert executor.priority_replies == [(101, 99)]
+    assert "uid" not in json.dumps(context)
+
+
+def test_external_reply_priority_rejects_stop_and_unrelated_actions(setup):
+    executor, remote, store, _ = setup
+    store.remember_owned("floor", 77)
+    remote.messages = [
+        {
+            "type": 1,
+            "post": {"id": 101, "title": "合成问题"},
+            "floor": {"id": 99, "post_id": 101, "uid": 888, "content": "外部回复"},
+            "to_floor": {"id": 77, "uid": 99, "content": "自己的原评论"},
+        }
+    ]
+    actions = iter(
+        [
+            proposal("stop"),
+            proposal("like_post", post_id=101),
+            proposal("read_post", post_id=101),
+            proposal("reply_comment", post_id=101, floor_id=99, content="自然接续回复"),
+        ]
+    )
+    counts = ai.cycle(SimpleNamespace(next=lambda messages: next(actions)), executor)
+    assert counts == {"reads": 1, "writes": 1, "previews": 0, "denied": 2}
+    assert len(remote.writes) == 1
+
+
+def test_external_reply_can_be_persistently_deferred_for_policy_reason(setup):
+    executor, remote, store, _ = setup
+    store.remember_owned("floor", 77)
+    remote.messages = [
+        {
+            "type": 1,
+            "post": {"id": 101, "title": "合成问题"},
+            "floor": {"id": 99, "post_id": 101, "uid": 888, "content": "严肃学业问题"},
+            "to_floor": {"id": 77, "uid": 99, "content": "自己的原评论"},
+        }
+    ]
+    executor.prefetch_context()
+    result = executor.run(
+        proposal("defer_reply", post_id=101, floor_id=99, reason="serious_academic")
+    )
+    assert result["deferred"] and store.reply_deferred(99)
+    assert executor.pending_priority_replies() == []
+    assert not remote.writes
+
+
 def test_created_post_without_response_id_is_resolved_from_recent_exact_match(setup):
     executor, remote, store, clock = setup
     read(executor)
@@ -352,8 +440,6 @@ def test_round_conversational_reply_cap(setup):
         store.db.execute("INSERT INTO own_content VALUES ('post', 101, ?)", (clock[0],))
     executor.run(proposal("read_comments", post_id=101, page=1))
     for i in range(3):
-        with store.db:
-            store.db.execute("INSERT INTO own_content VALUES ('floor', ?, ?)", (300 + i, clock[0]))
         executor.read_floors.add((101, 300 + i))
         executor.own_thread_floors.add(300 + i)
     # 只有已读且标记为自有会话链的楼层才可会话回复；第三条触发每轮上限。
@@ -406,10 +492,11 @@ def test_old_direct_comment_is_recovered_from_inbox_and_reply_is_conversational(
             "floor": {
                 "id": 99,
                 "post_id": 101,
+                "uid": 888,
                 "nickname": "合成回复者",
                 "content": "合成新回复",
             },
-            "to_floor": {"id": 77, "content": "合成原评论"},
+            "to_floor": {"id": 77, "uid": 99, "content": "合成原评论"},
         }
     ]
     context = executor.prefetch_context()
@@ -442,6 +529,7 @@ def test_ai_post_comment_on_second_inbox_page_is_recovered_and_prioritized(setup
             "floor": {
                 "id": 99,
                 "post_id": 101,
+                "uid": 888,
                 "nickname": "合成评论者",
                 "content": "合成新评论",
             },
