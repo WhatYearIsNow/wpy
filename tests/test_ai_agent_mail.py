@@ -66,6 +66,7 @@ def test_each_action_generates_exactly_one_truthful_report(setup, action, args):
     assert "评论编号" not in text and "互动目标评论" not in text
     if action in ai.SPEECH:
         assert args["content"] in text and "AI 助手生成" not in text
+    assert "邮件类型：大肥鱼活动汇报" in text
     if action == "reply_comment":
         assert "被回复者：合成昵称" in text and "原评论：合成评论" in text
         assert "大肥鱼回复的内容" in text
@@ -227,6 +228,8 @@ def test_sender_name_is_big_fish_and_existing_mail_default_unchanged(monkeypatch
     )
     assert messages[0]["From"].addresses[0].display_name == "大肥鱼"
     assert messages[1]["From"].addresses[0].display_name == "微北洋"
+    assert messages[0]["X-WPY-Mail-Category"] == "ai-agent-activity"
+    assert messages[1]["X-WPY-Mail-Category"] == "standard-notification"
     assert messages[0]["From"].addresses[0].addr_spec == config.user
 
 

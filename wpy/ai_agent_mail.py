@@ -83,6 +83,7 @@ def render(event):
     unknown = event.get("outcome") == "unknown"
     subject = "大肥鱼这次操作结果待核实" if unknown else LABELS[kind]
     rows = [
+        ("邮件类型", "大肥鱼活动汇报"),
         ("动作", LABELS[kind]),
         ("时间", datetime.fromtimestamp(event["at"], TZ).strftime("%Y-%m-%d %H:%M:%S +08:00")),
     ]
@@ -144,7 +145,13 @@ def render(event):
 
 def sender(config):
     return lambda subject, text, body, message_id: send_mail(
-        config, subject, text, body, message_id, sender_name="大肥鱼"
+        config,
+        subject,
+        text,
+        body,
+        message_id,
+        sender_name="大肥鱼",
+        mail_category="ai-agent-activity",
     )
 
 

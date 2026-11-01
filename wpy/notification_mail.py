@@ -96,7 +96,8 @@ def notification_subject(events, *, test=False):
         ]
         if targets:
             parts.append(f"有人{action}了你的" + "、".join(targets))
-    return "；".join(parts) + ("（测试）" if test else "")
+    # 普通互动通知与大肥鱼动作汇报共用同一收件配置，主题必须可直接区分。
+    return "微北洋通知｜" + "；".join(parts) + ("（测试）" if test else "")
 
 
 def render_digest(events, base_url="", *, test=False):
@@ -109,7 +110,8 @@ def render_digest(events, base_url="", *, test=False):
         if test
         else "以下是本轮检查发现的新互动，未更改微北洋中的已读状态。"
     )
-    text = [title, intro]
+    mail_type = "微北洋正常互动通知"
+    text = [title, "邮件类型：" + mail_type, intro]
     cards = []
     for event in events:
         label = LABELS[event["kind"]]
@@ -182,6 +184,8 @@ def render_digest(events, base_url="", *, test=False):
         + title
         + "</h2><p>"
         + intro
+        + "</p><p><strong>邮件类型：</strong>"
+        + html.escape(mail_type)
         + "</p>"
         + "".join(cards)
         + '<p style="color:#8a93a5;font-size:13px">'
@@ -192,13 +196,24 @@ def render_digest(events, base_url="", *, test=False):
     return subject, "\n".join(text), body
 
 
-def send_mail(config, subject, text, body, message_id, *, sender_name="微北洋"):
+def send_mail(
+    config,
+    subject,
+    text,
+    body,
+    message_id,
+    *,
+    sender_name="微北洋",
+    mail_category="standard-notification",
+):
     message = EmailMessage()
     message["From"] = f"{sender_name} <{config.user}>"
     message["To"] = config.recipient
     message["Subject"] = subject.replace("\r", " ").replace("\n", " ")
     message["Date"] = formatdate(localtime=False)
     message["Message-ID"] = message_id
+    # 供邮件客户端规则筛选；值固定为 ASCII，不携带账号或论坛内容。
+    message["X-WPY-Mail-Category"] = mail_category
     message.set_content(text)
     message.add_alternative(body, subtype="html")
     accepted = False
