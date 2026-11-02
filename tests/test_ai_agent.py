@@ -651,6 +651,40 @@ def test_cycle_with_mock_model_sends_one_action_and_filters_forum_secrets(setup)
     assert len(remote.writes) == 1
 
 
+def test_cycle_keeps_system_messages_at_the_front(setup):
+    executor, _, _, _ = setup
+    captured = []
+
+    def stop(messages):
+        captured.append([message["role"] for message in messages])
+        return proposal("stop")
+
+    assert ai.cycle(SimpleNamespace(next=stop), executor)["writes"] == 0
+    roles = captured[0]
+    first_user = roles.index("user")
+    assert roles[:first_user] == ["system"]
+    assert "system" not in roles[first_user:]
+
+
+def test_format_correction_is_also_inserted_before_user_messages():
+    calls = []
+    remote = Remote()
+    executor = ai.Executor(ai.Forum("test_personal_token", request=remote), None)
+
+    def recover(messages):
+        calls.append([message["role"] for message in messages])
+        if len(calls) == 1:
+            raise ai.ModelFormatError("合成格式错误")
+        return proposal("stop")
+
+    result = ai.cycle(SimpleNamespace(next=recover), executor)
+    assert result["denied"] == 1
+    for roles in calls:
+        first_user = roles.index("user")
+        assert all(role == "system" for role in roles[:first_user])
+        assert "system" not in roles[first_user:]
+
+
 def test_cycle_cannot_override_board_rule_and_is_bounded(setup):
     executor, remote, _, _ = setup
     remote.board = 1
