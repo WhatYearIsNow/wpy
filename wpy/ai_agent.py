@@ -273,35 +273,66 @@ class Model:
 class Forum:
     """仅使用指定 token；写请求不重试、不借用抓取或看板账号。"""
 
-    def __init__(self, token, *, request=request_json):
+    # 读接口对限流/网关抖动（每小时抓取窗口内偶发）自动退避重试一次；写操作不重试。
+    READ_RETRY_STATUS = (429, 500, 502, 503, 504)
+
+    def __init__(self, token, *, request=request_json, sleep=time.sleep):
         if not isinstance(token, str) or not token:
             raise AuthenticationError("AI 未取得本人账号会话")
-        self.token, self.request = token, request
+        self.token, self.request, self.sleep = token, request, sleep
 
     def call(self, path, params, *, write=False):
-        try:
-            result = self.request(
-                LAKE_API + path + ("" if write else "?" + urlencode(params)),
-                token=self.token,
-                method="POST" if write else "GET",
-                throttle=True,
-                headers={"Content-Type": "application/x-www-form-urlencoded"} if write else None,
-                body=urlencode(params) if write else None,
-                timeout=30,
-                max_bytes=2 * 1024 * 1024,
-            )
-        except Exception as error:
-            if isinstance(error, HTTPError):
-                error.close()
-            if getattr(error, "code", None) in (401, 403):
-                raise AuthenticationError("AI 论坛会话失效，已停止；请重新启动登录") from None
-            raise AgentError("论坛请求失败；写操作结果不明时不会自动重试") from None
-        if not isinstance(result, dict):
-            raise AgentError("论坛响应格式无效")
-        if result.get("code") in (401, 403):
-            raise AuthenticationError("AI 论坛会话失效，已停止；请重新启动登录")
-        if result.get("code") != 200:
-            raise AgentError("论坛未接受请求；不会自动重试写入")
+        mode = "写" if write else "读"
+        attempt = 0
+        while True:
+            try:
+                result = self.request(
+                    LAKE_API + path + ("" if write else "?" + urlencode(params)),
+                    token=self.token,
+                    method="POST" if write else "GET",
+                    throttle=True,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"}
+                    if write
+                    else None,
+                    body=urlencode(params) if write else None,
+                    timeout=30,
+                    max_bytes=2 * 1024 * 1024,
+                )
+            except Exception as error:
+                if isinstance(error, HTTPError):
+                    error.close()
+                    if getattr(error, "code", None) in (401, 403):
+                        raise AuthenticationError(
+                            "AI 论坛会话失效，已停止；请重新启动登录"
+                        ) from None
+                    if (
+                        not write
+                        and getattr(error, "code", None) in self.READ_RETRY_STATUS
+                        and attempt < 1
+                    ):
+                        attempt += 1
+                        self.sleep(30)
+                        continue
+                raise AgentError(
+                    f"论坛{mode}请求失败（{type(error).__name__}）；"
+                    + ("写操作结果不明时不会自动重试" if write else "本轮停止")
+                ) from None
+            if not isinstance(result, dict):
+                raise AgentError("论坛响应格式无效")
+            if result.get("code") in (401, 403):
+                raise AuthenticationError("AI 论坛会话失效，已停止；请重新启动登录")
+            code = result.get("code")
+            if code != 200:
+                if code == 429 and not write and attempt < 1:
+                    attempt += 1
+                    self.sleep(30)
+                    continue
+                detail = str(result.get("message") or result.get("error") or "").strip()[:100]
+                raise AgentError(
+                    f"论坛{mode}请求被拒绝（code {code}{'：' + detail if detail else ''}）；"
+                    + ("不会自动重试写入" if write else "本轮停止")
+                )
+            break
         data = result.get("data")
         if write:
             identifiers = {}

@@ -1050,3 +1050,46 @@ def test_read_task_counted_and_level_fetched_once_per_day(setup):
     executor.round_briefing()
     assert user_calls() == 1  # 当天只取一次
     assert store.meta_value("level_note_day") is not None
+
+
+def test_read_request_retries_throttle_once_and_reports_forum_reason():
+    calls = []
+    sleeps = []
+
+    def throttled_once(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return {"code": 429, "message": "发言太快了"}
+        return {"code": 200, "data": {"post": {"id": 1, "type": 2}}}
+
+    forum = ai.Forum("test_personal_token", request=throttled_once, sleep=sleeps.append)
+    data = forum.call("post", {"id": 1})
+    assert data["post"]["id"] == 1
+    assert len(calls) == 2 and sleeps == [30]
+
+    def always_throttled(*args, **kwargs):
+        return {"code": 429, "message": "发言太快了"}
+
+    forum = ai.Forum("test_personal_token", request=always_throttled, sleep=sleeps.append)
+    with pytest.raises(ai.AgentError, match="code 429：发言太快了"):
+        forum.call("post", {"id": 1})
+
+    def server_busy(*args, **kwargs):
+        raise HTTPError("https://example.invalid", 503, "test_private", {}, None)
+
+    forum = ai.Forum("test_personal_token", request=server_busy, sleep=sleeps.append)
+    with pytest.raises(ai.AgentError, match="读请求失败"):
+        forum.call("post", {"id": 1})
+    assert len(sleeps) == 3  # 503 读请求也退避了一次
+
+
+def test_write_request_never_retries_and_says_so():
+    sleeps = []
+
+    def throttled(*args, **kwargs):
+        return {"code": 429, "message": "发言太快了"}
+
+    forum = ai.Forum("test_personal_token", request=throttled, sleep=sleeps.append)
+    with pytest.raises(ai.AgentError, match="写请求被拒绝.*不会自动重试写入"):
+        forum.call("floor", {"post_id": 1, "content": "合成评论"}, write=True)
+    assert sleeps == []  # 写操作不重试、不等待
