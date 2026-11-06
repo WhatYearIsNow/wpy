@@ -628,8 +628,15 @@ def test_initial_baseline_uses_latest_floor_page_then_polls_only_new_ids(store):
         if "/post?" in url:
             return {
                 "code": 200,
-                "data": {"post": {"id": 101, "title": "示例帖子", "content": "示例帖子正文",
-                                  "like_count": 2, "uid": 74670}},
+                "data": {
+                    "post": {
+                        "id": 101,
+                        "title": "示例帖子",
+                        "content": "示例帖子正文",
+                        "like_count": 2,
+                        "uid": 74670,
+                    }
+                },
             }
         page = int(parse_qs(urlsplit(url).query)["page"][0])
         assert page == 1, "不应扫描旧评论历史"
@@ -661,8 +668,15 @@ def test_incremental_floor_scan_loads_multiple_new_pages_then_stops_at_cursor(st
         if "/post?" in url:
             return {
                 "code": 200,
-                "data": {"post": {"id": 101, "title": "示例帖子", "content": "示例帖子正文",
-                                  "like_count": 2, "uid": 74670}},
+                "data": {
+                    "post": {
+                        "id": 101,
+                        "title": "示例帖子",
+                        "content": "示例帖子正文",
+                        "like_count": 2,
+                        "uid": 74670,
+                    }
+                },
             }
         page = int(parse_qs(urlsplit(url).query)["page"][0])
         top = 125 - (page - 1) * 20
@@ -729,19 +743,27 @@ def test_json_response_limit_and_retry_after(monkeypatch):
 
 
 def reply_row(target, parent_id):
-    return message(kind_type=1, target=target, to_floor={
-        "id": parent_id, "content": "原评论%d" % parent_id, "like_count": 1,
-    })
+    return message(
+        kind_type=1,
+        target=target,
+        to_floor={
+            "id": parent_id,
+            "content": "原评论%d" % parent_id,
+            "like_count": 1,
+        },
+    )
 
 
 def test_reply_to_other_person_comment_is_recorded_but_not_emailed(store):
     # 学到的本人 UID=74670：回复自己评论的（父楼 10）发信，回复他人评论的（父楼 20）只记基线。
     store.remember_self_uid(74670)
-    rounds = iter([
-        [],
-        [reply_row(13, 20), reply_row(12, 10)],  # 接口按评论 ID 降序返回。
-        [reply_row(13, 20), reply_row(12, 10)],
-    ])
+    rounds = iter(
+        [
+            [],
+            [reply_row(13, 20), reply_row(12, 10)],  # 接口按评论 ID 降序返回。
+            [reply_row(13, 20), reply_row(12, 10)],
+        ]
+    )
 
     def request(url, **kwargs):
         path = urlsplit(url).path
@@ -754,9 +776,17 @@ def test_reply_to_other_person_comment_is_recorded_but_not_emailed(store):
         if path.endswith("/floor"):
             floor_id = int(query["floor_id"][0])
             uid = 74670 if floor_id == 10 else 999
-            return {"code": 200, "data": {"floor": {
-                "id": floor_id, "content": "原评论%d" % floor_id, "like_count": 1, "uid": uid,
-            }}}
+            return {
+                "code": 200,
+                "data": {
+                    "floor": {
+                        "id": floor_id,
+                        "content": "原评论%d" % floor_id,
+                        "like_count": 1,
+                        "uid": uid,
+                    }
+                },
+            }
         raise AssertionError("本轮不应请求 " + url)
 
     client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
@@ -784,25 +814,38 @@ def test_self_uid_is_learned_from_own_post_comment(store):
             return {"code": 200, "data": {"list": [message(target=31)]}}
         if path.endswith("/post"):
             assert int(query["id"][0]) == 101
-            return {"code": 200, "data": {"post": {
-                "id": 101, "title": "示例帖子", "content": "示例帖子正文",
-                "like_count": 2, "uid": 74670,
-            }}}
+            return {
+                "code": 200,
+                "data": {
+                    "post": {
+                        "id": 101,
+                        "title": "示例帖子",
+                        "content": "示例帖子正文",
+                        "like_count": 2,
+                        "uid": 74670,
+                    }
+                },
+            }
         raise AssertionError("本轮不应请求 " + url)
 
     store.ingest([])  # 先建立基线，让下一条评论作为新互动出现。
     sent = []
-    result = run_cycle(ForumClient(lambda: "test-token", request=request, sleep=lambda _: None),
-                       store, lambda *args: sent.append(args))
+    result = run_cycle(
+        ForumClient(lambda: "test-token", request=request, sleep=lambda _: None),
+        store,
+        lambda *args: sent.append(args),
+    )
     assert store.self_uid() == 74670
     assert result["new"] == 1 and result["sent"] == 1  # 自己帖子下的评论仍照常通知。
 
 
 def test_before_uid_learning_replies_are_not_silently_dropped(store):
-    rounds = iter([
-        [],
-        [reply_row(13, 20), reply_row(12, 10)],
-    ])
+    rounds = iter(
+        [
+            [],
+            [reply_row(13, 20), reply_row(12, 10)],
+        ]
+    )
 
     def request(url, **kwargs):
         path = urlsplit(url).path
@@ -812,10 +855,17 @@ def test_before_uid_learning_replies_are_not_silently_dropped(store):
             return {"code": 200, "data": {"list": next(rounds)}}
         if path.endswith("/floor"):
             floor_id = int(parse_qs(urlsplit(url).query)["floor_id"][0])
-            return {"code": 200, "data": {"floor": {
-                "id": floor_id, "content": "原评论%d" % floor_id, "like_count": 1,
-                "uid": 74670 if floor_id == 10 else 999,
-            }}}
+            return {
+                "code": 200,
+                "data": {
+                    "floor": {
+                        "id": floor_id,
+                        "content": "原评论%d" % floor_id,
+                        "like_count": 1,
+                        "uid": 74670 if floor_id == 10 else 999,
+                    }
+                },
+            }
         if path.endswith("/post"):
             raise AssertionError("未学到 UID 前不应请求帖子详情：" + url)
         raise AssertionError("本轮不应请求 " + url)
