@@ -20,7 +20,9 @@ from wpy.notifications import (
     RateLimited,
     agent_event_keys,
     agent_owned_content,
+    crawler_floor_chain,
     normalize,
+    non_interactive_event_keys,
     run_cycle,
     worker_lock,
 )
@@ -877,3 +879,95 @@ def test_before_uid_learning_replies_are_not_silently_dropped(store):
     assert result["new"] == 2 and result["sent"] == 1  # 学到 UID 前保持旧行为，不误杀。
     assert sent[0][1].count("通知类型：") == 2
     assert store.self_uid() is None
+
+
+def _crawler_db(tmp_path, rows):
+    """rows: (id, 父楼ID, 用户ID) 楼层表最小子集。"""
+    import sqlite3
+
+    path = tmp_path / "sitewide.db"
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TABLE floors (id INTEGER PRIMARY KEY, 父楼ID INTEGER, 用户ID INTEGER)"
+    )
+    connection.executemany("INSERT INTO floors VALUES (?,?,?)", rows)
+    connection.commit()
+    connection.close()
+    return path
+
+
+def test_crawler_chain_walks_to_thread_root(tmp_path):
+    # 抓取库把楼中楼扁平化：2882590 的父楼直接是顶层评论 10（作者 74670，即串根）。
+    rows = [(10, 0, 74670), (2882107, 10, 66192), (2882590, 10, 92537)]
+    path = _crawler_db(tmp_path, rows)
+    chain = crawler_floor_chain(path, 2882590)
+    assert [(fid, parent, uid) for fid, parent, uid in chain] == [
+        (2882590, 10, 92537),
+        (10, 0, 74670),
+    ]
+
+
+def test_thread_rooted_at_my_comment_is_included(tmp_path):
+    me, other_a, other_b = 74670, 66192, 92537
+    path = _crawler_db(tmp_path, [(10, 0, me), (2882107, 10, other_a), (2882590, 10, other_b)])
+    events = [
+        dict(event(kind_type=1, target=2882590), parent_uid=other_b, my_comment_id=10),
+        dict(event(kind_type=1, target=2882107), parent_uid=other_a, my_comment_id=10),
+    ]
+    assert (
+        non_interactive_event_keys(events, me, crawler_db=path) == set()
+    )  # 串根=本人：他人互聊也纳入。
+
+
+def test_others_thread_under_own_post_is_still_excluded(tmp_path):
+    me, other_a, other_b = 74670, 66192, 92537
+    # 串根 30 的作者是 555（不是本人）：即使在本人帖子下也不通知。
+    path = _crawler_db(tmp_path, [(30, 0, 555), (2882107, 30, other_a), (2882590, 30, other_b)])
+    events = [dict(event(kind_type=1, target=2882590), parent_uid=other_b, my_comment_id=30)]
+    assert non_interactive_event_keys(events, me, crawler_db=path) == {("comment_reply", 2882590)}
+
+
+def test_unresolvable_thread_defaults_to_excluded(tmp_path):
+    me, other = 74670, 92537
+    path = _crawler_db(tmp_path, [(10, 0, me)])  # 只有串根楼层在库里。
+    events = [dict(event(kind_type=1, target=2882590), parent_uid=other, my_comment_id=404)]
+    assert non_interactive_event_keys(events, me, crawler_db=path) == {
+        ("comment_reply", 2882590)
+    }  # 解析失败默认不通知。
+    # 父楼作者未知但爬取库能定位串根=本人 → 纳入。
+    events2 = [dict(event(kind_type=1, target=2882107), my_comment_id=10)]
+    assert non_interactive_event_keys(events2, me, crawler_db=path) == set()
+
+
+def test_direct_reply_to_own_comment_needs_no_crawler(tmp_path):
+    me, other = 74670, 92537
+    events = [dict(event(kind_type=1, target=2882107), parent_uid=me, my_comment_id=10)]
+    assert non_interactive_event_keys(events, me, crawler_db=None) == set()
+
+
+def test_agent_owned_interactions_win_over_thread_root_rules(tmp_path):
+    # 大肥鱼自有内容上的互动：无论串根是谁，一律走动作邮件，不进微北洋通知。
+    me, fish_post, fish_floor = 74670, 900, 800
+    path = _crawler_db(tmp_path, [(fish_floor, 0, me), (2882590, fish_floor, 92537)])
+    fish_post_row = {"id": fish_post, "title": "合成帖子", "content": "正文", "like_count": 2}
+    events = [
+        # 回复发生在"以本人评论为根"的串里（本应通知），但它在大肥鱼自己的帖子上。
+        dict(
+            event(kind_type=1, target=2882590),
+            parent_uid=92537,
+            my_comment_id=fish_floor,
+            post_id=fish_post,
+        ),
+        normalize("likes", message("likes", 0, target=fish_post, post=fish_post_row)),
+        normalize("floors", message("floors", 0, target=2882107, post=fish_post_row)),
+    ]
+    posts, floors = {fish_post}, {fish_floor}
+    excluded = agent_event_keys(events, posts, floors)
+    assert {
+        ("comment_reply", 2882590),
+        ("post_like", fish_post),
+        ("post_comment", 2882107),
+    } <= excluded
+    # 串根规则不会把已排除的事件重新纳入。
+    excluded |= non_interactive_event_keys(events, me, crawler_db=path)
+    assert ("comment_reply", 2882590) in excluded

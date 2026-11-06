@@ -41,7 +41,7 @@ def setup(tmp_path):
 @pytest.mark.parametrize(
     "action,args",
     [
-        ("create_post", {"board": 2, "title": "合成标题", "content": "合成正文"}),
+        ("create_post", {"board": 2, "title": "合成标题", "content": "合成正文", "filler": 0}),
         ("comment_post", {"post_id": 101, "content": "合成评论"}),
         ("reply_comment", {"post_id": 101, "floor_id": 11, "content": "合成回复"}),
         ("like_post", {"post_id": 101}),

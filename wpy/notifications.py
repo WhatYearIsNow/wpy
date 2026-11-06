@@ -501,23 +501,73 @@ def agent_event_keys(events, posts, floors):
     return excluded
 
 
-def non_interactive_event_keys(events, self_uid):
+def crawler_floor_chain(db_path, floor_id):
+    """只读抓取库，返回楼层祖先链 [(楼层ID, 父楼ID, 作者UID), ...]（直接父楼在最前）。
+
+    抓取库把楼中楼扁平化（子楼父楼都指向顶层评论），因此链上第一个
+    作者等于串根作者。解析失败返回 None——调用方按「不属于本人」处理。
+    """
+    if not db_path:
+        return None
+    source = Path(db_path)
+    try:
+        connection = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+    except (OSError, sqlite3.Error):
+        return None
+    try:
+        chain, seen, cursor = [], set(), floor_id
+        while cursor and cursor not in seen:
+            seen.add(cursor)
+            row = connection.execute(
+                "SELECT 父楼ID, 用户ID FROM floors WHERE id=?", (cursor,)
+            ).fetchone()
+            if row is None:
+                break
+            parent, uid = row
+            chain.append((cursor, parent, uid))
+            cursor = parent
+        return chain
+    except sqlite3.Error:
+        return None
+    finally:
+        connection.close()
+
+
+def non_interactive_event_keys(events, self_uid, crawler_db=None):
     """回复他人评论的嵌套回复：只记基线，不发个人通知。
 
-    论坛对「自己帖子下的所有回复」都发消息（type=1），父楼不一定是自己的评论；
-    只有父楼作者等于本账号 UID 的才是与本人的互动。父楼或本人 UID 未知时
-    按互动处理，保持旧行为，不静默丢失。
+    论坛对「自己帖子下的所有回复」都发消息（type=1），父楼不一定是自己的评论。
+    通知条件：父楼作者等于本账号 UID，或讨论串根（顶层评论）作者等于本账号
+    ——以自己的帖子或评论为起点的讨论都纳入；纯粹的他人互聊不发信。
+    串根用只读抓取库解析（楼中楼已扁平化，链上第一个有作者的楼层即串根）；
+    解析不到或本人 UID 未学到时按「不属于本人」处理，宁缺勿扰。
     """
     excluded = set()
     if not self_uid:
         return excluded
+    root_cache = {}
     for event in events:
-        if event["kind"] == "comment_reply" and event.get("parent_uid") not in (None, self_uid):
-            excluded.add((event["kind"], event["target_id"]))
+        if event["kind"] != "comment_reply":
+            continue
+        parent_uid = event.get("parent_uid")
+        if parent_uid == self_uid:
+            continue  # 直接回复我的评论，照常通知。
+        floor_id = event.get("my_comment_id")
+        root_uid = None
+        if floor_id:
+            if floor_id not in root_cache:
+                chain = crawler_floor_chain(crawler_db, floor_id)
+                root_cache[floor_id] = (
+                    next((uid for _, _, uid in reversed(chain) if uid), None) if chain else None
+                )
+            root_uid = root_cache[floor_id]
+        if root_uid == self_uid:
+            continue  # 以我的评论为起点的串，他人互聊也纳入通知。
+        excluded.add((event["kind"], event["target_id"]))
     return excluded
 
 
-def run_cycle(client, store, sender, base_url="", *, agent_state=""):
+def run_cycle(client, store, sender, base_url="", *, agent_state="", crawler_db=""):
     # 先补发队列；论坛接口不可用时也不能阻塞已持久化的邮件。
     delivery = store.deliver(sender)
     snapshot = client.snapshot(**store.scan_options())
@@ -532,7 +582,7 @@ def run_cycle(client, store, sender, base_url="", *, agent_state=""):
     if learned is not None and learned != self_uid:
         store.remember_self_uid(learned)
         self_uid = learned
-    excluded |= non_interactive_event_keys(events, self_uid)
+    excluded |= non_interactive_event_keys(events, self_uid, crawler_db=crawler_db)
     result = store.ingest(snapshot, base_url, excluded=excluded)
     if not delivery["failed"]:
         extra = store.deliver(sender)

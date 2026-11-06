@@ -40,7 +40,9 @@ def test_sensitive_text_cannot_reach_forum_or_report_outbox(tmp_path, sensitive)
                 executor.run(proposal("comment_post", post_id=101, content=sensitive))
             with pytest.raises(ai.Denied, match="个人信息"):
                 executor.run(
-                    proposal("create_post", board=2, title=sensitive, content="合成日常闲聊")
+                    proposal(
+                        "create_post", board=2, title=sensitive, content="合成日常闲聊", filler=0
+                    )
                 )
             assert not remote.writes
             assert store.db.execute("SELECT count(*) FROM actions").fetchone()[0] == 0

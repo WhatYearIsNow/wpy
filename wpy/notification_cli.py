@@ -57,6 +57,11 @@ def add_parser(sub):
         default=os.environ.get("WPY_NOTIFY_AI_STATE", ""),
         help="可选的大肥鱼状态目录或数据库；其互动不重复发送“微北洋”邮件",
     )
+    parser.add_argument(
+        "--crawler-db",
+        default=os.environ.get("WPY_NOTIFY_CRAWLER_DB", ""),
+        help="可选的抓取库路径（只读）；用于解析回复串根，判定他人嵌套回复是否纳入通知",
+    )
     parser.add_argument("--interval", type=int, default=INTERVAL, help="检查间隔秒数，至少 300 秒")
     parser.add_argument(
         "--max-pages",
@@ -68,13 +73,24 @@ def add_parser(sub):
 
 
 def watch(
-    client, store, sender, stop, *, interval=INTERVAL, base_url="", agent_state="", report=print
+    client,
+    store,
+    sender,
+    stop,
+    *,
+    interval=INTERVAL,
+    base_url="",
+    agent_state="",
+    crawler_db="",
+    report=print,
 ):
     failures = 0
     while not stop.is_set():
         delay = interval
         try:
-            result = run_cycle(client, store, sender, base_url, agent_state=agent_state)
+            result = run_cycle(
+                client, store, sender, base_url, agent_state=agent_state, crawler_db=crawler_db
+            )
             failures = 0
             report(json.dumps(result, ensure_ascii=False))
         except AuthenticationError:
@@ -129,6 +145,7 @@ def main(args):
                         sender,
                         base_url,
                         agent_state=getattr(args, "agent_state", ""),
+                        crawler_db=getattr(args, "crawler_db", ""),
                     )
                     print(json.dumps(result, ensure_ascii=False))
                     return int(result["failed"] > 0)
@@ -145,6 +162,7 @@ def main(args):
                         interval=args.interval,
                         base_url=base_url,
                         agent_state=getattr(args, "agent_state", ""),
+                        crawler_db=getattr(args, "crawler_db", ""),
                     )
                 finally:
                     for sig, handler in old_handlers.items():

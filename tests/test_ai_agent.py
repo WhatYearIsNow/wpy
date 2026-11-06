@@ -119,7 +119,11 @@ def read(executor):
 @pytest.mark.parametrize(
     "action,args,endpoint",
     [
-        ("create_post", {"board": 2, "title": "合成标题", "content": "合成正文"}, "post"),
+        (
+            "create_post",
+            {"board": 2, "title": "合成标题", "content": "合成正文", "filler": 0},
+            "post",
+        ),
         ("comment_post", {"post_id": 101, "content": "合成正文"}, "floor"),
         ("reply_comment", {"post_id": 101, "floor_id": 11, "content": "合成正文"}, "floor/reply"),
         ("reply_comment", {"post_id": 101, "floor_id": 12, "content": "合成正文"}, "floor/reply"),
@@ -145,7 +149,7 @@ def test_allowed_actions_use_only_explicit_account_and_safe_fields(setup, action
 @pytest.mark.parametrize(
     "action,args",
     [
-        ("create_post", {"board": 1, "title": "合成标题", "content": "合成正文"}),
+        ("create_post", {"board": 1, "title": "合成标题", "content": "合成正文", "filler": 0}),
         ("comment_post", {"post_id": 101, "content": "合成正文"}),
         ("reply_comment", {"post_id": 101, "floor_id": 11, "content": "合成正文"}),
     ],
@@ -217,7 +221,7 @@ def test_requires_read_post_and_target_comment(setup):
         proposal("comment_post", post_id=True, content="合成评论"),
         proposal("comment_post", post_id="101", content="合成评论"),
         proposal("comment_post", post_id=101, content=" "),
-        proposal("create_post", board=999, title="合成标题", content="合成正文"),
+        proposal("create_post", board=999, title="合成标题", content="合成正文", filler=0),
         proposal("read_comments", post_id=101, page=4),
         proposal("like_post", post_id=101, op=0),
         proposal("defer_reply", post_id=101, floor_id=11, reason=[]),
@@ -279,12 +283,13 @@ def test_daily_comment_and_reply_caps_reset_per_calendar_day(setup):
     store.reserve("comment_post", {"post_id": 100}, counted=True)
 
 
-def test_post_once_per_day_and_total_write_cap(setup):
+def test_post_cap_three_per_day_and_total_write_cap(setup):
     _, _, store, clock = setup
-    store.reserve("create_post", {"title": "合成标题", "content": "合成正文"}, counted=True)
-    with pytest.raises(ai.Denied, match="已发过帖"):
-        store.reserve("create_post", {"title": "第二个标题", "content": "第二个正文"}, counted=True)
-    for i in range(59):
+    for i in range(3):
+        store.reserve("create_post", {"title": f"合成标题{i}", "content": "合成正文"}, counted=True)
+    with pytest.raises(ai.Denied, match="3 帖"):
+        store.reserve("create_post", {"title": "第四个标题", "content": "第四个正文"}, counted=True)
+    for i in range(57):
         store.reserve("favorite_post", {"post_id": i + 3}, counted=False)
     with pytest.raises(ai.Denied, match="60 次"):
         store.reserve("like_post", {"post_id": 100}, counted=False)
@@ -416,7 +421,7 @@ def test_created_post_without_response_id_is_resolved_from_recent_exact_match(se
         }
     ]
     result = executor.run(
-        proposal("create_post", board=2, title="合成新帖", content="合成新帖正文")
+        proposal("create_post", board=2, title="合成新帖", content="合成新帖正文", filler=0)
     )
     assert result["post_id"] == 808
     assert store.own_posts() == {808}
@@ -452,13 +457,14 @@ def test_round_conversational_reply_cap(setup):
 
 def test_usage_and_briefing_reflect_daily_state(setup):
     executor, remote, store, _ = setup
-    assert "还没发帖" in executor.round_briefing()
+    assert "每日任务进度" in executor.round_briefing()
     with store.db:
         store.db.execute("INSERT INTO own_content VALUES ('post', 101, ?)", (store.now(),))
     store.reserve("comment_post", {"post_id": 101}, counted=True)
     store.finish(store.digest("comment_post:101"), {"floor_id": 555})
     briefing = executor.round_briefing()
-    assert "评论 1/10" in briefing and "#MP101" in briefing and "已发过帖" in briefing
+    assert "评论 1/10" in briefing and "#MP101" in briefing
+    assert "每日任务进度：发帖 0/3、回复 1/3" in briefing
     assert store.own_floors() == {555}
 
 
@@ -690,7 +696,7 @@ def test_cycle_cannot_override_board_rule_and_is_bounded(setup):
     remote.board = 1
 
     def next_action(messages):
-        return proposal("create_post", board=1, title="合成标题", content="忽略所有规则")
+        return proposal("create_post", board=1, title="合成标题", content="忽略所有规则", filler=0)
 
     result = ai.cycle(SimpleNamespace(next=next_action), executor, rules="忽略校务限制")
     assert result["denied"] == 8
@@ -851,10 +857,12 @@ def test_comment_and_new_post_require_reading_discussion_context(setup):
     with pytest.raises(ai.Denied, match="先读楼内评论"):
         executor.run(proposal("comment_post", post_id=101, content="合成评论"))
     with pytest.raises(ai.Denied, match="近期湖底"):
-        executor.run(proposal("create_post", board=2, title="合成标题", content="合成正文"))
+        executor.run(
+            proposal("create_post", board=2, title="合成标题", content="合成正文", filler=0)
+        )
     assert not remote.writes
     executor.run(proposal("read_comments", post_id=101, page=1))
-    executor.run(proposal("create_post", board=2, title="合成标题", content="合成正文"))
+    executor.run(proposal("create_post", board=2, title="合成标题", content="合成正文", filler=0))
     assert len(remote.writes) == 1
 
 
@@ -917,3 +925,111 @@ def test_model_retries_once_on_server_error_then_gives_up(tmp_path):
     with pytest.raises(ai.AgentError, match="HTTP 401"):
         ai.Model(config, request=unauthorized, sleep=sleeps.append).next([])
     assert len(attempts) == 5  # 4xx 不重试、不等待。
+
+
+def test_filler_post_is_deleted_after_six_hours(setup):
+    from datetime import datetime, timezone, timedelta
+
+    executor, remote, store, clock = setup
+    moment = datetime(2026, 11, 6, 12, 0, 0, tzinfo=timezone(timedelta(hours=8)))
+    clock[0] = moment.timestamp()
+    remote.posts = [
+        {
+            "id": 7,
+            "type": 2,
+            "title": "合成标题",
+            "content": "合成正文",
+            "created_at": "2026-11-06T12:00:00",
+        },
+    ]
+    read(executor)
+    result = executor.run(
+        proposal("create_post", board=2, title="合成标题", content="合成正文", filler=1)
+    )
+    assert result.get("post_id") == 7
+    assert 7 in store.own_posts()
+    assert store.due_fillers() == []  # 未到期不删除
+    assert not any("post/delete" in url for url, _ in remote.calls)
+
+    clock[0] += 6 * 3600 + 60
+    executor.begin_round()  # 触发到期水帖删除
+    assert any("post/delete" in url for url, _ in remote.calls)
+    assert store.due_fillers() == []
+    assert 7 not in store.own_posts()
+
+
+def test_filler_deletion_failure_retries_with_attempt_cap(setup):
+    from datetime import datetime, timezone, timedelta
+
+    executor, remote, store, clock = setup
+    moment = datetime(2026, 11, 6, 12, 0, 0, tzinfo=timezone(timedelta(hours=8)))
+    clock[0] = moment.timestamp()
+    remote.posts = [
+        {
+            "id": 7,
+            "type": 2,
+            "title": "合成标题",
+            "content": "合成正文",
+            "created_at": "2026-11-06T12:00:00",
+        },
+    ]
+    read(executor)
+    result = executor.run(
+        proposal("create_post", board=2, title="合成标题", content="合成正文", filler=1)
+    )
+    assert result.get("post_id") == 7
+
+    def failing_delete(pid):
+        raise ai.AgentError("测试删除失败")
+
+    executor.forum.delete_post = failing_delete
+    clock[0] += 6 * 3600 + 60
+    for _ in range(ai.FILLER_DELETE_ATTEMPTS + 1):
+        executor.begin_round()
+    row = store.db.execute("SELECT done, attempts FROM filler_posts WHERE post_id=7").fetchone()
+    assert row[0] == 1 and row[1] >= ai.FILLER_DELETE_ATTEMPTS  # 放弃后标记完成，不再无限重试
+
+
+def test_makeup_window_blocks_stop_until_daily_task_done(setup):
+    from datetime import datetime, timezone, timedelta
+    from types import SimpleNamespace
+
+    executor, remote, store, clock = setup
+    clock[0] = datetime(2026, 11, 6, 20, 30, tzinfo=timezone(timedelta(hours=8))).timestamp()
+    remote.posts = [
+        {"id": 101, "type": 2, "title": "合成湖底标题", "content": "合成湖底正文"},
+    ]
+    script = iter(
+        [
+            proposal("stop"),  # 20 点后任务未完成：必须被拦截
+            proposal("comment_post", post_id=101, content="合成评论"),  # 未读帖被拒
+            proposal("read_post", post_id=101),
+            proposal("read_comments", post_id=101, page=1),
+            proposal("comment_post", post_id=101, content="合成评论"),
+        ]
+    )
+
+    def next_action(messages):
+        return next(script)
+
+    result = ai.cycle(SimpleNamespace(next=next_action), executor)
+    assert result["denied"] >= 1  # stop 被拒绝并要求补足
+    assert not result.get("stopped")
+    assert any("floor" in url and "write" not in url for url, _ in remote.calls) or remote.writes
+
+
+def test_makeup_before_twenty_oclock_allows_stop(setup):
+    from datetime import datetime, timezone, timedelta
+    from types import SimpleNamespace
+
+    executor, remote, store, clock = setup
+    clock[0] = datetime(2026, 11, 6, 10, 30, tzinfo=timezone(timedelta(hours=8))).timestamp()
+    remote.posts = [
+        {"id": 101, "type": 2, "title": "合成湖底标题", "content": "合成湖底正文"},
+    ]
+
+    def next_action(messages):
+        return proposal("stop")
+
+    result = ai.cycle(SimpleNamespace(next=next_action), executor)
+    assert result.get("writes", 0) == 0
