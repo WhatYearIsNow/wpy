@@ -464,7 +464,8 @@ def test_usage_and_briefing_reflect_daily_state(setup):
     store.finish(store.digest("comment_post:101"), {"floor_id": 555})
     briefing = executor.round_briefing()
     assert "评论 1/10" in briefing and "#MP101" in briefing
-    assert "每日任务进度：发帖 0/3、回复 1/3" in briefing
+    assert "每日任务进度：看帖 0/1、发帖 0/3、回复 1/3" in briefing
+    assert "今日经验约 +1/12" in briefing
     assert store.own_floors() == {555}
 
 
@@ -1033,3 +1034,18 @@ def test_makeup_before_twenty_oclock_allows_stop(setup):
 
     result = ai.cycle(SimpleNamespace(next=next_action), executor)
     assert result.get("writes", 0) == 0
+
+
+def test_read_task_counted_and_level_fetched_once_per_day(setup):
+    executor, remote, store, clock = setup
+    read(executor)
+    assert store.usage()["reads"] == 2  # read_post 与 read_comments 各计一次
+    briefing = executor.round_briefing()
+    assert "看帖 1/1" in briefing and "今日经验约 +3/12" in briefing  # 进度按任务上限封顶
+    def user_calls():
+        return len([u for u, _ in remote.calls if u.rstrip("?").endswith("/user")])
+
+    assert user_calls() >= 1
+    executor.round_briefing()
+    assert user_calls() == 1  # 当天只取一次
+    assert store.meta_value("level_note_day") is not None

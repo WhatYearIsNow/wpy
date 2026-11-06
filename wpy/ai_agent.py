@@ -29,7 +29,8 @@ DAY_TZ = timezone(timedelta(hours=8))
 TAKEOVER_FALLBACK = datetime(2026, 10, 25, tzinfo=DAY_TZ).timestamp()
 MAX_DAILY_WRITES = 60  # 全天写操作安全上限，防刷屏兜底
 DAILY_TASK_POSTS = 3  # 每日积分任务：发帖计 2 分/次，上限 3 次
-DAILY_TASK_REPLIES = 3  # 每日积分任务：回复（评论+回复）计 1 分/次，上限 3 次
+DAILY_TASK_REPLIES = 3  # 每日积分任务：评论 +1/条，上限 3 条
+DAILY_TASK_READS = 1  # 每日积分任务：看帖（读帖子正文）每天 +3
 MAKEUP_HOUR = 20  # 北京时间该点后每日任务未达标则本轮强制补足
 FILLER_DELETE_DELAY = 6 * 3600  # 水帖发出 6 小时后自动删除
 FILLER_DELETE_ATTEMPTS = 3  # 删除失败重试上限，避免无限循环
@@ -414,6 +415,8 @@ class Store:
             CREATE TABLE IF NOT EXISTS filler_posts (
                 post_id INTEGER PRIMARY KEY, delete_at REAL NOT NULL,
                 attempts INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS read_log (
+                day_start REAL PRIMARY KEY, count INTEGER NOT NULL);
         """)
         # 旧库迁移：发起类动作计数与会话回复区分；历史动作全部按发起计。
         try:
@@ -556,13 +559,27 @@ class Store:
             "SELECT 1 FROM own_content WHERE entity='post' AND at>=? LIMIT 1",
             (self.day_start(self.now()),),
         ).fetchone()
+        read_row = self.db.execute(
+            "SELECT count FROM read_log WHERE day_start=?", (self.day_start(self.now()),)
+        ).fetchone()
         return {
             "comments": kinds.count("comment_post"),
             "replies": kinds.count("reply_comment"),
             "posts": kinds.count("create_post"),
+            "reads": read_row[0] if read_row else 0,
             "posted": "create_post" in kinds or own_post_today is not None,
             "total": len(rows),
         }
+
+    def bump_read(self):
+        """看帖计数：读帖子正文/评论各记一次，当天累计用于每日任务与经验实测。"""
+        day = self.day_start(self.now())
+        with self.db:
+            self.db.execute(
+                "INSERT INTO read_log VALUES (?,1) ON CONFLICT(day_start) "
+                "DO UPDATE SET count=count+1",
+                (day,),
+            )
 
     def reserve(self, action, args, *, report=None, counted=True):
         # 对同帖只评论一次；同一评论只回复一次，不以改写文案绕过去重。
@@ -625,6 +642,17 @@ class Store:
                         self.db.execute(
                             "INSERT OR IGNORE INTO own_content VALUES (?,?,?)", (entity, value, at)
                         )
+
+    def meta_value(self, key):
+        row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_meta(self, key, value):
+        with self.db:
+            self.db.execute(
+                "INSERT INTO meta VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, str(value)),
+            )
 
     def next_cycle(self, value=None):
         if value is not None:
@@ -737,19 +765,29 @@ class Executor:
             return {
                 "posts": 0,
                 "replies": 0,
+                "reads": 0,
                 "posts_done": True,
                 "replies_done": True,
+                "reads_done": True,
                 "makeup": False,
+                "exp_today": 0,
             }
         usage = self.store.usage()
         now = self.store.now()
         hour = datetime.fromtimestamp(now, DAY_TZ).hour
+        posts = min(usage["posts"], DAILY_TASK_POSTS)
+        replies = min(usage["comments"] + usage["replies"], DAILY_TASK_REPLIES)
+        reads_done = usage["reads"] >= DAILY_TASK_READS
+        exp_today = posts * 2 + replies * 1 + (3 if reads_done else 0)
         return {
-            "posts": min(usage["posts"], DAILY_TASK_POSTS),
-            "replies": min(usage["comments"] + usage["replies"], DAILY_TASK_REPLIES),
+            "posts": posts,
+            "replies": replies,
+            "reads": min(usage["reads"], DAILY_TASK_READS),
             "posts_done": usage["posts"] >= DAILY_TASK_POSTS,
             "replies_done": usage["comments"] + usage["replies"] >= DAILY_TASK_REPLIES,
+            "reads_done": reads_done,
             "makeup": hour >= MAKEUP_HOUR,
+            "exp_today": exp_today,
         }
 
     def pending_priority_replies(self):
@@ -760,16 +798,48 @@ class Executor:
             and not self.store.reply_deferred(fid)
         ]
 
+    def level_note(self):
+        """每天一次读取账号等级/经验，作为积分规则的实测核对；失败不影响本轮。"""
+        if self.store is None:
+            return ""
+        today = self.store.day_start(self.store.now())
+        if self.store.meta_value("level_note_day") == str(today):
+            return self.store.meta_value("level_note") or ""
+        try:
+            user = (self.forum.call("user", {}) or {}).get("user") or {}
+            info = user.get("level_info") or {}
+            level = info.get("level")
+            note = ""
+            if level is not None:
+                note = (
+                    f"当前 LV{level}（{info.get('level_name') or ''}），"
+                    f"经验 {user.get('level_point')}/{info.get('next_level_point')}"
+                )
+            self.store.set_meta("level_note_day", today)
+            self.store.set_meta("level_note", note)
+            if user.get("level_point") is not None:
+                self.store.set_meta("level_point", user.get("level_point"))
+                self.store.set_meta("level_point_at", self.store.now())
+            return note
+        except AgentError:
+            return self.store.meta_value("level_note") or ""
+
     def round_briefing(self):
         if self.store is None:
             return "未连接持久化状态；仅进行格式验证"
         usage = self.store.usage()
         task = self.daily_task_status()
+        level_note = self.level_note()
         briefing = (
-            f"每日任务进度：发帖 {task['posts']}/{DAILY_TASK_POSTS}、"
-            f"回复 {task['replies']}/{DAILY_TASK_REPLIES}"
+            f"每日任务进度：看帖 {task['reads']}/{DAILY_TASK_READS}、"
+            f"发帖 {task['posts']}/{DAILY_TASK_POSTS}、"
+            f"回复 {task['replies']}/{DAILY_TASK_REPLIES}；今日经验约 +{task['exp_today']}/12"
         )
-        if task["makeup"] and (not task["posts_done"] or not task["replies_done"]):
+        if level_note:
+            briefing += f"；{level_note}"
+        if task["makeup"] and (
+            not task["posts_done"] or not task["replies_done"] or not task["reads_done"]
+        ):
             briefing += "（已过 20 点仍未达标，本轮优先补足）"
         briefing += (
             f"；今天已发起：评论 {usage['comments']}/10、回复 {usage['replies']}/10、"
@@ -1039,6 +1109,7 @@ class Executor:
             post = self.forum.post(pid)
             self.observe_style(pid, post.get("title"), post.get("content"))
             self.read_posts.add(pid)
+            self.store.bump_read()
             self.viewed_posts[pid] = {"id": pid, "title": post.get("title") or ""}
             return post_view(post)
         if action == "read_comments":
@@ -1078,6 +1149,7 @@ class Executor:
                         self.observe_style(pid, child.get("content"))
                         result.append(floor_view(child))
             self.read_comment_posts.add(pid)
+            self.store.bump_read()
             if post["type"] == 2 and pid in self.read_posts:
                 self.lake_context = True
             return {"comments": result}
@@ -1283,10 +1355,11 @@ def cycle(model, executor, rules=DEFAULT_RULES, *, max_steps=8):
                 makeup_nudged = True
                 _add_system_instruction(
                     messages,
-                    "每日积分任务未完成（今日发帖 %d/%d、回复 %d/%d），已过 20 点："
+                    "每日积分任务未完成（今日看帖 %d、发帖 %d/%d、回复 %d/%d），已过 20 点："
                     "本轮不允许 stop、点赞或收藏，必须产出一条合格的评论、回复或发帖；"
                     "先读目标帖和楼内评论，再按论坛习惯写。"
                     % (
+                        task["reads"],
                         task["posts"],
                         DAILY_TASK_POSTS,
                         task["replies"],
