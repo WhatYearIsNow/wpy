@@ -1042,6 +1042,7 @@ def test_read_task_counted_and_level_fetched_once_per_day(setup):
     assert store.usage()["reads"] == 2  # read_post 与 read_comments 各计一次
     briefing = executor.round_briefing()
     assert "看帖 1/1" in briefing and "今日经验约 +3/12" in briefing  # 进度按任务上限封顶
+
     def user_calls():
         return len([u for u, _ in remote.calls if u.rstrip("?").endswith("/user")])
 
