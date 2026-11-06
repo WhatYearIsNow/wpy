@@ -59,6 +59,7 @@ def test_common_json_fences_still_require_the_same_strict_action_schema(response
 @pytest.mark.parametrize("http", [False, True])
 def test_transport_failures_are_not_retried_as_bad_json_and_do_not_leak_responses(http):
     calls = []
+    sleeps = []
 
     def request(*args, **kwargs):
         calls.append(kwargs)
@@ -67,9 +68,14 @@ def test_transport_failures_are_not_retried_as_bad_json_and_do_not_leak_response
         raise OSError("test_private_connection_details")
 
     model = ai.Model(
-        ai.ModelConfig("https://example.invalid", "test_key", "test-model"), request=request
+        ai.ModelConfig("https://example.invalid", "test_key", "test-model"),
+        request=request,
+        sleep=sleeps.append,
     )
     with pytest.raises(ai.AgentError) as error:
         ai.cycle(model, ai.Executor(ai.Forum("test_personal_token"), None))
     assert not isinstance(error.value, ai.ModelFormatError)
-    assert "test_private" not in str(error.value) and len(calls) == 1
+    assert "test_private" not in str(error.value)
+    # 5xx 退避 60 秒重试一次；连接失败不重试。
+    assert len(calls) == (2 if http else 1)
+    assert sleeps == ([60] if http else [])
