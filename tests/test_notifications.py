@@ -22,6 +22,7 @@ from wpy.notifications import (
     agent_owned_content,
     crawler_floor_chain,
     normalize,
+    low_signal_event_keys,
     non_interactive_event_keys,
     run_cycle,
     worker_lock,
@@ -971,3 +972,27 @@ def test_agent_owned_interactions_win_over_thread_root_rules(tmp_path):
     # 串根规则不会把已排除的事件重新纳入。
     excluded |= non_interactive_event_keys(events, me, crawler_db=path)
     assert ("comment_reply", 2882590) in excluded
+
+
+@pytest.mark.parametrize("content", ["3", "  3  ", "33", "333"])
+def test_water_comment_three_is_recorded_but_not_emailed(store, tmp_path, content):
+    path = _crawler_db(tmp_path, [(10, 0, 74670)])
+    store.remember_self_uid(74670)
+    events = [
+        dict(event(kind_type=1, target=60), parent_uid=74670, my_comment_id=10, content=content),
+        dict(event(kind_type=0, target=61), content=content),  # 自己帖子下的"3"评论
+    ]
+    excluded = agent_event_keys(events, set(), set())
+    excluded |= non_interactive_event_keys(events, 74670, crawler_db=path)
+    excluded |= low_signal_event_keys(events)
+    # 即使串根是本人，水评论也不发信；两类评论都只记基线。
+    assert {("comment_reply", 60), ("post_comment", 61)} <= excluded
+
+
+def test_three_inside_longer_text_still_notifies(store):
+    events = [
+        dict(
+            event(kind_type=1, target=62), parent_uid=74670, my_comment_id=10, content="3 点了，睡"
+        ),
+    ]
+    assert low_signal_event_keys(events) == set()

@@ -8,6 +8,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sqlite3
 import time
@@ -23,6 +24,8 @@ from .notification_mail import NotificationError, render_digest
 INTERVAL = 300
 PAGE_SIZE = 20
 MAX_PAGES = 50
+# 社区常见水回复：内容只有"3"（含连打 33/333）；这类评论不发个人通知。
+LOW_SIGNAL_COMMENT = re.compile(r"^3+$")
 
 
 class AuthenticationError(NotificationError):
@@ -533,6 +536,17 @@ def crawler_floor_chain(db_path, floor_id):
         connection.close()
 
 
+def low_signal_event_keys(events):
+    """内容只有"3"的水评论（帖子评论与评论回复都算）：只记基线，不发个人通知。"""
+    excluded = set()
+    for event in events:
+        if event["kind"] in ("post_comment", "comment_reply") and LOW_SIGNAL_COMMENT.match(
+            str(event.get("content") or "").strip()
+        ):
+            excluded.add((event["kind"], event["target_id"]))
+    return excluded
+
+
 def non_interactive_event_keys(events, self_uid, crawler_db=None):
     """回复他人评论的嵌套回复：只记基线，不发个人通知。
 
@@ -583,6 +597,7 @@ def run_cycle(client, store, sender, base_url="", *, agent_state="", crawler_db=
         store.remember_self_uid(learned)
         self_uid = learned
     excluded |= non_interactive_event_keys(events, self_uid, crawler_db=crawler_db)
+    excluded |= low_signal_event_keys(events)
     result = store.ingest(snapshot, base_url, excluded=excluded)
     if not delivery["failed"]:
         extra = store.deliver(sender)
