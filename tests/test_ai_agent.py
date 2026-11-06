@@ -1,6 +1,7 @@
 """合成模型与论坛：验证真实执行边界、持久化额度及敏感错误隔离。"""
 
 import json
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError
@@ -711,6 +712,7 @@ def test_cli_never_falls_back_to_shared_crawler_credentials(monkeypatch, capsys,
     monkeypatch.setattr(cli.auth, "login", lambda *a: pytest.fail("未显式指定 AI 账号不能登录"))
     args = SimpleNamespace(
         interval=8640,
+        fast_interval=300,
         model_config="",
         rules_file="",
         state_dir=tmp_path,
@@ -790,11 +792,19 @@ def test_watch_temporary_errors_backoff_and_restore_signal_handlers(monkeypatch,
 
     monkeypatch.setattr(cli, "cycle", unavailable)
     args = SimpleNamespace(
-        interval=8640, model_config="", rules_file="", state_dir=tmp_path, execute=True, watch=True
+        interval=8640,
+        fast_interval=0,  # 本测试只验证失败退避；快检在专测中覆盖
+        model_config="",
+        rules_file="",
+        state_dir=tmp_path,
+        execute=True,
+        watch=True,
     )
     assert cli.main(args) == 0
+    # fast_interval=0：不做快检，按失败退避等待
     assert stop.waits == [pytest.approx(17280, abs=1)]
-    assert "模型暂时不可用" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "模型暂时不可用" in out
     assert all(cli.signal.getsignal(sig) == handler for sig, handler in handlers.items())
 
 
@@ -883,6 +893,7 @@ def test_private_preferences_supplement_persona_instead_of_replacing_it(monkeypa
     monkeypatch.setattr(cli, "cycle", run)
     args = SimpleNamespace(
         interval=8640,
+        fast_interval=300,
         model_config="",
         rules_file=str(rules_file),
         state_dir=tmp_path,
@@ -1093,3 +1104,84 @@ def test_write_request_never_retries_and_says_so():
     with pytest.raises(ai.AgentError, match="写请求被拒绝.*不会自动重试写入"):
         forum.call("floor", {"post_id": 1, "content": "合成评论"}, write=True)
     assert sleeps == []  # 写操作不重试、不等待
+
+
+def test_fast_probe_triggers_round_for_new_interaction(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("WPY_AI_KEY", "test_tju_key")
+    monkeypatch.setenv("WPY_AI_ACCOUNT", "test-personal")
+    monkeypatch.setenv("WPY_AI_PASSWORD", "test_personal_password")
+    monkeypatch.setattr(cli.auth, "login", lambda *a: "test_personal_token")
+
+    interaction_row = {
+        "type": 1,
+        "post": {"id": 101},
+        "floor": {
+            "id": 777,
+            "post_id": 101,
+            "uid": 999,
+            "nickname": "合成昵称",
+            "content": "合成回复",
+            "created_at": "2026-11-07T00:00:00",
+        },
+        "to_floor": {"id": 555, "content": "我的评论", "like_count": 0},
+    }
+
+    class FakeForum:
+        """只服务 message/floors 探针；其余调用视为失败。返回值遵循 call() 契约：data 内层。"""
+
+        def __init__(self, token):
+            self.token = token
+            self.probes = 0
+
+        def call(self, path, params, *, write=False):
+            if path == "message/floors":
+                self.probes += 1
+                return {"list": [interaction_row]}
+            raise ai.AgentError("fake: " + path)
+
+    fake_forum = FakeForum("test_personal_token")
+    monkeypatch.setattr(cli, "Forum", lambda token: fake_forum)
+
+    class Stop:
+        stopped = False
+        waits = []
+        count = 0
+
+        def is_set(self):
+            return self.stopped
+
+        def set(self):
+            self.stopped = True
+
+        def wait(self, delay):
+            self.waits.append(delay)
+            self.count += 1
+            if self.count >= 2:  # 快检触发第二轮之后的等待即结束
+                self.stopped = True
+
+    stop = Stop()
+    monkeypatch.setattr(cli.threading, "Event", lambda: stop)
+    state = {"cycles": 0}
+
+    def fake_cycle(model, executor, rules):
+        state["cycles"] += 1
+        if state["cycles"] == 1:
+            executor.store.remember_owned("floor", 555)  # 第一轮登记自有评论
+        return {"reads": 0, "writes": 0}
+
+    monkeypatch.setattr(cli, "cycle", fake_cycle)
+    args = SimpleNamespace(
+        interval=8640,
+        fast_interval=5,
+        model_config="",
+        rules_file="",
+        state_dir=tmp_path,
+        execute=True,
+        watch=True,
+    )
+    assert cli.main(args) == 0
+    assert state["cycles"] == 2  # 快检发现新互动，立即触发第二轮
+    assert fake_forum.probes >= 1
+    with sqlite3.connect(Path(tmp_path) / "agent.sqlite3") as conn:
+        seen = conn.execute("SELECT floor_id FROM interaction_seen").fetchall()
+    assert (777,) in seen

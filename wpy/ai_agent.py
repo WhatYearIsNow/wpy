@@ -446,6 +446,8 @@ class Store:
             CREATE TABLE IF NOT EXISTS filler_posts (
                 post_id INTEGER PRIMARY KEY, delete_at REAL NOT NULL,
                 attempts INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS interaction_seen (
+                floor_id INTEGER PRIMARY KEY, at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS read_log (
                 day_start REAL PRIMARY KEY, count INTEGER NOT NULL);
         """)
@@ -538,6 +540,16 @@ class Store:
                 "DELETE FROM own_content WHERE entity=? AND remote_id=?",
                 (entity, integer(remote_id, "自有内容 ID")),
             )
+
+    def seen_interactions(self):
+        return {row[0] for row in self.db.execute("SELECT floor_id FROM interaction_seen")}
+
+    def mark_interactions_seen(self, floor_ids):
+        values = [(int(fid), self.now()) for fid in floor_ids]
+        if not values:
+            return
+        with self.db:
+            self.db.executemany("INSERT OR IGNORE INTO interaction_seen VALUES (?,?)", values)
 
     def register_filler(self, post_id, *, delete_at=None):
         """登记纯凑数水帖；到期后由执行层自动删除。"""
@@ -704,6 +716,52 @@ class Store:
             self.db.execute("SELECT 1 FROM plain_threads WHERE digest=?", (digest,)).fetchone()
             is not None
         )
+
+
+def own_content_interactions(rows, own_posts, own_floors):
+    """从消息列表行提取指向自有内容的互动：(回复楼层, 被回复楼层, 帖子)。"""
+    out = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        post = row.get("post") or {}
+        floor = row.get("floor") or {}
+        original = row.get("to_floor") or {}
+        try:
+            kind_type = integer(row.get("type"), "消息类型", low=0, high=1)
+            pid = integer(post.get("id") or floor.get("post_id"), "消息帖号")
+            fid = integer(floor.get("id"), "消息评论")
+        except Denied:
+            continue
+        if kind_type == 0 and pid in own_posts:
+            out.append((fid, None, pid))
+        elif kind_type == 1:
+            try:
+                oid = integer(original.get("id"), "原评论")
+            except Denied:
+                continue
+            if oid in own_floors:
+                out.append((fid, oid, pid))
+    return out
+
+
+def probe_interactions(forum, store, *, pages=5):
+    """轻量探测自有内容的新互动（只读，不跑模型）；返回未处理过的互动列表。"""
+    rows = []
+    for page in range(1, pages + 1):
+        inbox = forum.call("message/floors", {"page": page, "page_size": 20})
+        lst = inbox.get("list")
+        if not isinstance(lst, list):
+            raise AgentError("评论消息列表格式无效")
+        rows.extend(lst)
+        if len(lst) < 20:
+            break
+    seen = store.seen_interactions()
+    return [
+        (fid, oid, pid)
+        for fid, oid, pid in own_content_interactions(rows, store.own_posts(), store.own_floors())
+        if fid not in seen
+    ]
 
 
 def post_view(post):

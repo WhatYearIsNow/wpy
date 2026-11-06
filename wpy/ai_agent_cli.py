@@ -21,6 +21,7 @@ from .ai_agent import (
     ModelConfig,
     Store,
     cycle,
+    probe_interactions,
     worker_lock,
 )
 from .config import DATA_DIR
@@ -38,6 +39,12 @@ def add_parser(sub):
         type=int,
         default=INTERVAL,
         help="每轮结束后等待秒数，默认 3600（约一小时），至少 3600",
+    )
+    parser.add_argument(
+        "--fast-interval",
+        type=int,
+        default=300,
+        help="自有内容新互动的轻量检查间隔秒数，默认 300；有新互动立即进入完整轮次，0 关闭",
     )
     parser.add_argument(
         "--model-config",
@@ -93,6 +100,9 @@ def main(args):
             return 0
         if args.interval < 3600:
             raise AgentError("AI 轮次间隔至少一小时；默认约一小时")
+        fast_interval_arg = getattr(args, "fast_interval", 0)
+        if fast_interval_arg and fast_interval_arg < 5:
+            raise AgentError("互动快检间隔至少 5 秒")
         config = ModelConfig.load(args.model_config) if not retry_mail else None
         # 必须明确指定 AI 账号；不读取 WPY_ACCOUNT、凭据.json 或看板会话。
         account = os.environ.get("WPY_AI_ACCOUNT", "").strip()
@@ -119,6 +129,8 @@ def main(args):
                     print(json.dumps({"mail": mail.deliver(store, send)}), flush=True)
                     return 0
                 failures = 0
+                last_probe = 0.0
+                fast_interval = getattr(args, "fast_interval", 0)
                 due = store.next_cycle() if args.watch and args.execute else 0
                 if send and args.watch:
                     mail.enqueue(store, "started")
@@ -128,11 +140,41 @@ def main(args):
                         if delivery["sent"] or delivery["failed"]:
                             print(json.dumps({"mail": delivery}), flush=True)
                     now = store.now()
+                    # 轻量快检：到点且还没到正式轮次时，只读消息列表探测自有内容新互动；
+                    # 发现新互动立即把轮次提前到现在（有人互动 5 分钟内就能收到回复）。
+                    # 探针尽力而为：登录或读取失败只跳过本次，不影响正式轮次与退避。
+                    if (
+                        args.watch
+                        and args.execute
+                        and fast_interval
+                        and now >= last_probe + fast_interval
+                        and now < due
+                    ):
+                        last_probe = now
+                        pending = []
+                        try:
+                            try:
+                                probe_token = auth.login(account, password)
+                            except Exception:
+                                probe_token = None
+                            if probe_token:
+                                pending = probe_interactions(Forum(probe_token), store)
+                        except Exception as error:
+                            print(
+                                json.dumps({"probe": "failed", "detail": str(error)[:120]}),
+                                flush=True,
+                            )
+                        else:
+                            store.mark_interactions_seen(fid for fid, _oid, _pid in pending)
+                            if pending:
+                                store.next_cycle(now)
+                                due = now
                     if now < due:
                         mail_due = mail.next_due(store) if send else None
-                        stop.wait(
-                            max(0.1, min(due, mail_due if mail_due is not None else due) - now)
-                        )
+                        wait_until = due
+                        if mail_due is not None and mail_due < wait_until:
+                            wait_until = mail_due
+                        stop.wait(max(0.1, wait_until - now))
                         continue
                     # 先保存下轮时间；进程意外重启不会立刻再跑一轮论坛互动。
                     if args.watch and args.execute:
