@@ -587,12 +587,15 @@ def test_watch_default_interval_and_backoff():
                 raise error
             return []
 
-        def enrich(self, events):
+        def enrich(self, events, *, learn_uid=False):
             return events
 
     class Store:
         def scan_options(self):
             return {}
+
+        def self_uid(self):
+            return None
 
         def new_events(self, events, *, excluded=frozenset()):
             return []
@@ -620,9 +623,15 @@ def test_initial_baseline_uses_latest_floor_page_then_polls_only_new_ids(store):
 
     def request(url, **kwargs):
         calls.append(url)
-        page = int(parse_qs(urlsplit(url).query)["page"][0])
         if "/likes?" in url:
             return {"code": 200, "data": {"list": []}}
+        if "/post?" in url:
+            return {
+                "code": 200,
+                "data": {"post": {"id": 101, "title": "示例帖子", "content": "示例帖子正文",
+                                  "like_count": 2, "uid": 74670}},
+            }
+        page = int(parse_qs(urlsplit(url).query)["page"][0])
         assert page == 1, "不应扫描旧评论历史"
         return {"code": 200, "data": {"list": current[0], "total": 20}}
 
@@ -649,6 +658,12 @@ def test_incremental_floor_scan_loads_multiple_new_pages_then_stops_at_cursor(st
         calls.append(url)
         if "/likes?" in url:
             return {"code": 200, "data": {"list": []}}
+        if "/post?" in url:
+            return {
+                "code": 200,
+                "data": {"post": {"id": 101, "title": "示例帖子", "content": "示例帖子正文",
+                                  "like_count": 2, "uid": 74670}},
+            }
         page = int(parse_qs(urlsplit(url).query)["page"][0])
         top = 125 - (page - 1) * 20
         return {
@@ -658,7 +673,9 @@ def test_incremental_floor_scan_loads_multiple_new_pages_then_stops_at_cursor(st
 
     client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
     result = run_cycle(client, store, lambda *args: True)
-    assert len(calls) == 3 and result["new"] == 25 and result["sent"] == 1
+    # 3 次消息分页 + 1 次 UID 学习的帖子详情（同帖只读一次）。
+    assert len(calls) == 4 and result["new"] == 25 and result["sent"] == 1
+    assert any("/post?" in url for url in calls)
     assert store.scan_options()["floor_cursor"] == 125
 
 
@@ -709,3 +726,104 @@ def test_json_response_limit_and_retry_after(monkeypatch):
     with pytest.raises(http.Throttled) as caught:
         http.request_json("https://example.invalid/", throttle=False)
     assert caught.value.retry_after == 1800
+
+
+def reply_row(target, parent_id):
+    return message(kind_type=1, target=target, to_floor={
+        "id": parent_id, "content": "原评论%d" % parent_id, "like_count": 1,
+    })
+
+
+def test_reply_to_other_person_comment_is_recorded_but_not_emailed(store):
+    # 学到的本人 UID=74670：回复自己评论的（父楼 10）发信，回复他人评论的（父楼 20）只记基线。
+    store.remember_self_uid(74670)
+    rounds = iter([
+        [],
+        [reply_row(13, 20), reply_row(12, 10)],  # 接口按评论 ID 降序返回。
+        [reply_row(13, 20), reply_row(12, 10)],
+    ])
+
+    def request(url, **kwargs):
+        path = urlsplit(url).path
+        query = parse_qs(urlsplit(url).query)
+        if path.endswith("/message/likes"):
+            return {"code": 200, "data": {"list": []}}
+        if path.endswith("/message/floors"):
+            rows = next(rounds)
+            return {"code": 200, "data": {"list": rows}}
+        if path.endswith("/floor"):
+            floor_id = int(query["floor_id"][0])
+            uid = 74670 if floor_id == 10 else 999
+            return {"code": 200, "data": {"floor": {
+                "id": floor_id, "content": "原评论%d" % floor_id, "like_count": 1, "uid": uid,
+            }}}
+        raise AssertionError("本轮不应请求 " + url)
+
+    client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
+    assert run_cycle(client, store, lambda *args: True)["baseline"]
+    sent = []
+    result = run_cycle(client, store, lambda *args: sent.append(args))
+    assert result["new"] == 1 and result["sent"] == 1
+    assert "有人回复了你的评论" in sent[0][1]
+    assert sent[0][1].count("通知类型：") == 1
+    # 被过滤的回复仍进入去重基线，下轮不重复出现，游标正常推进。
+    assert store.db.execute(
+        "SELECT 1 FROM seen WHERE kind='comment_reply' AND target_id=13"
+    ).fetchone()
+    assert store.scan_options()["floor_cursor"] >= 13
+    assert run_cycle(client, store, lambda *args: sent.append(args))["new"] == 0
+
+
+def test_self_uid_is_learned_from_own_post_comment(store):
+    def request(url, **kwargs):
+        path = urlsplit(url).path
+        query = parse_qs(urlsplit(url).query)
+        if path.endswith("/message/likes"):
+            return {"code": 200, "data": {"list": []}}
+        if path.endswith("/message/floors"):
+            return {"code": 200, "data": {"list": [message(target=31)]}}
+        if path.endswith("/post"):
+            assert int(query["id"][0]) == 101
+            return {"code": 200, "data": {"post": {
+                "id": 101, "title": "示例帖子", "content": "示例帖子正文",
+                "like_count": 2, "uid": 74670,
+            }}}
+        raise AssertionError("本轮不应请求 " + url)
+
+    store.ingest([])  # 先建立基线，让下一条评论作为新互动出现。
+    sent = []
+    result = run_cycle(ForumClient(lambda: "test-token", request=request, sleep=lambda _: None),
+                       store, lambda *args: sent.append(args))
+    assert store.self_uid() == 74670
+    assert result["new"] == 1 and result["sent"] == 1  # 自己帖子下的评论仍照常通知。
+
+
+def test_before_uid_learning_replies_are_not_silently_dropped(store):
+    rounds = iter([
+        [],
+        [reply_row(13, 20), reply_row(12, 10)],
+    ])
+
+    def request(url, **kwargs):
+        path = urlsplit(url).path
+        if path.endswith("/message/likes"):
+            return {"code": 200, "data": {"list": []}}
+        if path.endswith("/message/floors"):
+            return {"code": 200, "data": {"list": next(rounds)}}
+        if path.endswith("/floor"):
+            floor_id = int(parse_qs(urlsplit(url).query)["floor_id"][0])
+            return {"code": 200, "data": {"floor": {
+                "id": floor_id, "content": "原评论%d" % floor_id, "like_count": 1,
+                "uid": 74670 if floor_id == 10 else 999,
+            }}}
+        if path.endswith("/post"):
+            raise AssertionError("未学到 UID 前不应请求帖子详情：" + url)
+        raise AssertionError("本轮不应请求 " + url)
+
+    client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
+    assert run_cycle(client, store, lambda *args: True)["baseline"]
+    sent = []
+    result = run_cycle(client, store, lambda *args: sent.append(args))
+    assert result["new"] == 2 and result["sent"] == 1  # 学到 UID 前保持旧行为，不误杀。
+    assert sent[0][1].count("通知类型：") == 2
+    assert store.self_uid() is None

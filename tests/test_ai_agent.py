@@ -881,3 +881,39 @@ def test_private_preferences_supplement_persona_instead_of_replacing_it(monkeypa
         watch=False,
     )
     assert cli.main(args) == 0
+
+
+def test_model_retries_once_on_server_error_then_gives_up(tmp_path):
+    from io import BytesIO
+
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"tju_llm_key": "test_tju_key"}))
+    config = ai.ModelConfig.load(path)
+    attempts = []
+    sleeps = []
+
+    def flaky(url, **kwargs):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise HTTPError(url, 500, "test", {}, BytesIO())
+        return {"choices": [{"message": {"content": '{"action":"stop","arguments":{}}'}}]}
+
+    assert ai.Model(config, request=flaky, sleep=sleeps.append).next([]) == proposal("stop")
+    assert len(attempts) == 2 and sleeps == [60]
+
+    def always_unavailable(url, **kwargs):
+        attempts.append(1)
+        raise HTTPError(url, 503, "test", {}, BytesIO())
+
+    with pytest.raises(ai.AgentError, match="HTTP 503"):
+        ai.Model(config, request=always_unavailable, sleep=sleeps.append).next([])
+    assert len(attempts) == 4  # 500 一次成功用掉 2 次，503 重试后又失败 2 次。
+    assert sleeps == [60, 60]
+
+    def unauthorized(url, **kwargs):
+        attempts.append(1)
+        raise HTTPError(url, 401, "test", {}, BytesIO())
+
+    with pytest.raises(ai.AgentError, match="HTTP 401"):
+        ai.Model(config, request=unauthorized, sleep=sleeps.append).next([])
+    assert len(attempts) == 5  # 4xx 不重试、不等待。

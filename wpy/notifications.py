@@ -101,16 +101,22 @@ class ForumClient:
             raise NotificationError("论坛消息响应异常，本轮未更新消息基线")
         return data
 
-    def enrich(self, events):
-        """只为将要发信的新互动补齐上下文，同帖/同评论在本轮只读取一次。"""
+    def enrich(self, events, *, learn_uid=False):
+        """为将要判定/发信的互动补齐上下文，同帖/同评论在本轮只读取一次。
+
+        learn_uid=True 时对自己帖子下的评论事件补读帖子详情，
+        用于学习本账号 UID（父楼作者比对用），学到位后不再多发请求。
+        """
         posts, floors = {}, {}
         for event in events:
             post_id = event["post_id"]
-            if (
+            need_post = (
                 not event.get("post_content")
                 or not event.get("title")
                 or event.get("post_likes") is None
-            ):
+                or (learn_uid and event["kind"] == "post_comment")
+            )
+            if need_post:
                 if post_id not in posts:
                     self.sleep(1)
                     try:
@@ -125,8 +131,14 @@ class ForumClient:
                 event["post_content"] = _text(post.get("content"), 8000) or "[纯图片帖子或正文为空]"
                 if post.get("like_count") is not None:
                     event["post_likes"] = _number(post["like_count"])
+                if learn_uid and event["kind"] == "post_comment" and post.get("uid") is not None:
+                    event["post_uid"] = _number(post["uid"])
             floor_id = event.get("my_comment_id")
-            if floor_id and (not event.get("my_comment") or event.get("my_comment_likes") is None):
+            if floor_id and (
+                not event.get("my_comment")
+                or event.get("my_comment_likes") is None
+                or "parent_uid" not in event
+            ):
                 if floor_id not in floors:
                     self.sleep(1)
                     try:
@@ -140,6 +152,12 @@ class ForumClient:
                 event["my_comment"] = _text(floor.get("content"), 4000) or "[图片评论或内容为空]"
                 if floor.get("like_count") is not None:
                     event["my_comment_likes"] = _number(floor["like_count"])
+                # 父楼作者 UID：与本人 UID 比对，判定是否回复自己的评论。
+                if floor.get("uid") is not None:
+                    try:
+                        event["parent_uid"] = _number(floor["uid"], positive=True)
+                    except ValueError:
+                        pass
         return events
 
     def snapshot(self, *, initial=False, floor_cursor=None):
@@ -334,6 +352,23 @@ class NotificationStore:
         ).fetchone()[0]
         return {"initial": not initialized, "floor_cursor": (cursor or 0) if initialized else None}
 
+    def self_uid(self):
+        """本账号 UID；从自己帖子下的评论互动中学习一次并持久化。"""
+        row = self.db.execute("SELECT value FROM meta WHERE key='self_uid'").fetchone()
+        try:
+            return _number(row[0], positive=True) if row else None
+        except ValueError:
+            return None
+
+    def remember_self_uid(self, uid):
+        uid = _number(uid, positive=True)
+        with self.db:
+            self.db.execute(
+                "INSERT INTO meta VALUES ('self_uid', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (str(uid),),
+            )
+
     def ingest(self, events, base_url="", *, excluded=frozenset()):
         """去重基线与发件箱在同一个事务中落盘；首次启动仅建立基线。"""
         with self.db:
@@ -466,13 +501,38 @@ def agent_event_keys(events, posts, floors):
     return excluded
 
 
+def non_interactive_event_keys(events, self_uid):
+    """回复他人评论的嵌套回复：只记基线，不发个人通知。
+
+    论坛对「自己帖子下的所有回复」都发消息（type=1），父楼不一定是自己的评论；
+    只有父楼作者等于本账号 UID 的才是与本人的互动。父楼或本人 UID 未知时
+    按互动处理，保持旧行为，不静默丢失。
+    """
+    excluded = set()
+    if not self_uid:
+        return excluded
+    for event in events:
+        if event["kind"] == "comment_reply" and event.get("parent_uid") not in (None, self_uid):
+            excluded.add((event["kind"], event["target_id"]))
+    return excluded
+
+
 def run_cycle(client, store, sender, base_url="", *, agent_state=""):
     # 先补发队列；论坛接口不可用时也不能阻塞已持久化的邮件。
     delivery = store.deliver(sender)
     snapshot = client.snapshot(**store.scan_options())
     posts, floors = agent_owned_content(agent_state)
     excluded = agent_event_keys(snapshot, posts, floors)
-    client.enrich(store.new_events(snapshot, excluded=excluded))
+    self_uid = store.self_uid()
+    events = store.new_events(snapshot, excluded=excluded)
+    client.enrich(events, learn_uid=self_uid is None)
+    learned = next(
+        (event["post_uid"] for event in events if event.get("post_uid") is not None), None
+    )
+    if learned is not None and learned != self_uid:
+        store.remember_self_uid(learned)
+        self_uid = learned
+    excluded |= non_interactive_event_keys(events, self_uid)
     result = store.ingest(snapshot, base_url, excluded=excluded)
     if not delivery["failed"]:
         extra = store.deliver(sender)

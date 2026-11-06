@@ -188,38 +188,49 @@ class ModelConfig:
 
 
 class Model:
-    def __init__(self, config, *, request=request_json):
+    # 上游网关偶发 5xx（如 HTTP 500）；退避一次再放弃，避免整轮白跑。
+    RETRY_STATUS = (500, 502, 503, 504)
+
+    def __init__(self, config, *, request=request_json, sleep=time.sleep):
         self.config, self.request = config, request
+        self.sleep = sleep
         self.privacy = PrivacyGuard([config.key])
 
     def next(self, messages):
         config = self.config
-        try:
-            result = self.request(
-                config.base + "/chat/completions",
-                method="POST",
-                throttle=False,
-                headers={
-                    "Authorization": "Bearer " + config.key,
-                    "Content-Type": "application/json",
-                },
-                body=json.dumps(
-                    {
-                        "model": config.model,
-                        "messages": self.privacy.redact(messages),
-                        "temperature": 0.3,
-                        "max_tokens": 1800,
-                        "stream": False,
-                    }
-                ),
-                timeout=90,
-                max_bytes=256 * 1024,
-            )
-        except HTTPError as error:
-            error.close()
-            raise AgentError(f"天大模型请求失败（HTTP {error.code}），本轮停止") from None
-        except Exception:
-            raise AgentError("天大模型连接失败，本轮停止") from None
+        attempt = 0
+        while True:
+            try:
+                result = self.request(
+                    config.base + "/chat/completions",
+                    method="POST",
+                    throttle=False,
+                    headers={
+                        "Authorization": "Bearer " + config.key,
+                        "Content-Type": "application/json",
+                    },
+                    body=json.dumps(
+                        {
+                            "model": config.model,
+                            "messages": self.privacy.redact(messages),
+                            "temperature": 0.3,
+                            "max_tokens": 1800,
+                            "stream": False,
+                        }
+                    ),
+                    timeout=90,
+                    max_bytes=256 * 1024,
+                )
+                break
+            except HTTPError as error:
+                error.close()
+                if error.code in self.RETRY_STATUS and attempt < 1:
+                    attempt += 1
+                    self.sleep(60)
+                    continue
+                raise AgentError(f"天大模型请求失败（HTTP {error.code}），本轮停止") from None
+            except Exception:
+                raise AgentError("天大模型连接失败，本轮停止") from None
         try:
             content = result["choices"][0]["message"]["content"]
             if not isinstance(content, str):
