@@ -117,6 +117,7 @@ class ForumClient:
                 not event.get("post_content")
                 or not event.get("title")
                 or event.get("post_likes") is None
+                or (event["kind"] == "floor_like" and not event.get("post_author"))
                 or (learn_uid and event["kind"] == "post_comment")
             )
             if need_post:
@@ -130,6 +131,9 @@ class ForumClient:
                     except ContentUnavailable:
                         posts[post_id] = {"content": "[帖子已删除或不可访问]"}
                 post = posts[post_id]
+                event["post_author"] = _text(post.get("nickname"), 80) or event.get(
+                    "post_author", ""
+                )
                 event["title"] = _text(post.get("title"), 500) or event.get("title", "")
                 event["post_content"] = _text(post.get("content"), 8000) or "[纯图片帖子或正文为空]"
                 if post.get("like_count") is not None:
@@ -233,6 +237,7 @@ def normalize(source, row):
         floor = row.get("floor") or {}
         event = {
             "post_id": _number(post.get("id") or floor.get("post_id"), positive=True),
+            "post_author": _text(post.get("nickname"), 80),
             "title": _text(post.get("title"), 500),
             "post_content": _text(post.get("content"), 8000),
             "post_likes": _number(post["like_count"])

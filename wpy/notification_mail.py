@@ -106,12 +106,11 @@ def render_digest(events, base_url="", *, test=False):
     title = "微北洋邮件提醒测试" if test else "微北洋互动提醒"
     subject = notification_subject(events, test=test)
     intro = (
-        "这是一封使用合成内容的测试邮件，没有发生下面展示的真实互动。"
-        if test
-        else "以下是本轮检查发现的新互动，未更改微北洋中的已读状态。"
+        "这是一封使用合成内容的测试邮件，没有发生下面展示的真实互动。" if test else ""
     )
-    mail_type = "微北洋正常互动通知"
-    text = [title, "邮件类型：" + mail_type, intro]
+    text = [title]
+    if intro:
+        text.append(intro)
     cards = []
     for event in events:
         label = LABELS[event["kind"]]
@@ -136,8 +135,13 @@ def render_digest(events, base_url="", *, test=False):
                 own_likes = event.get("likes")
             rows.append(("我的评论", own_comment or "[原评论暂不可用]"))
             rows.append(
-                ("评论点赞", f"{own_likes} 赞" if own_likes is not None else "[点赞数暂不可用]")
+                (
+                    "评论点赞",
+                    f"{own_likes} 赞" if own_likes is not None else "[点赞数暂不可用]",
+                )
             )
+        if event["kind"] == "floor_like":
+            rows.append(("发帖人昵称", event.get("post_author") or "[昵称暂不可用]"))
         if event["kind"] in ("post_like", "floor_like"):
             summary = (
                 f"本轮观察增加 {event['increase']}，当前累计 {event['likes']} 赞"
@@ -182,11 +186,8 @@ def render_digest(events, base_url="", *, test=False):
         'max-width:680px;margin:auto;padding:20px">'
         '<h2 style="color:#2A5A90;margin:0 0 10px">'
         + title
-        + "</h2><p>"
-        + intro
-        + "</p><p><strong>邮件类型：</strong>"
-        + html.escape(mail_type)
-        + "</p>"
+        + "</h2>"
+        + ("<p>" + html.escape(intro) + "</p>" if intro else "")
         + "".join(cards)
         + '<p style="color:#8a93a5;font-size:13px">'
         + note
@@ -251,6 +252,7 @@ def test_events():
         dict(
             other_post,
             kind="floor_like",
+            post_author="示例发帖人",
             my_comment=own_comment,
             my_comment_likes=4,
             likes=4,

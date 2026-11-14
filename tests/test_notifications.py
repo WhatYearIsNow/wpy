@@ -40,7 +40,13 @@ def offline(monkeypatch):
 def message(source="floors", kind_type=0, target=11, likes=2, **extra):
     row = {
         "type": kind_type,
-        "post": {"id": 101, "title": "示例帖子", "content": "示例帖子正文", "like_count": likes},
+        "post": {
+            "id": 101,
+            "nickname": "示例发帖人",
+            "title": "示例帖子",
+            "content": "示例帖子正文",
+            "like_count": likes,
+        },
         "floor": {
             "id": target,
             "post_id": 101,
@@ -81,6 +87,7 @@ def test_official_message_type_mapping(source, kind_type, expected):
     result = event(source, kind_type)
     assert result["kind"] == expected
     assert result["post_id"] == 101
+    assert result["post_author"] == "示例发帖人"
     assert result["post_content"] == "示例帖子正文"
     if expected == "comment_reply":
         assert result["original"] == "示例原评论"
@@ -370,12 +377,18 @@ def test_standard_template_contains_post_context_and_specific_interaction(index)
     subject, text, body = mail.render_digest([item])
     for label in ("帖子编号", "帖子标题", "帖子正文", "帖子点赞"):
         assert label in text and label in body
-    assert "邮件类型：微北洋正常互动通知" in text
+    assert "以下是本轮检查发现的新互动" not in text
+    assert "邮件类型：微北洋正常互动通知" not in text
+    assert "邮件类型" not in body
     assert subject == "微北洋通知｜" + mail.LABELS[item["kind"]]
     assert item["title"] in text and item["post_content"] in text
     if item["kind"] in ("floor_like", "comment_reply"):
         assert "我的评论" in text and item["my_comment"] in text
         assert "评论点赞：4 赞" in text
+    if item["kind"] == "floor_like":
+        assert f"发帖人昵称：{item['post_author']}" in text
+    else:
+        assert "发帖人昵称：" not in text
     if item["kind"] in ("post_comment", "comment_reply"):
         assert f"回复人：{item['author']}" in text
         assert f"回复详情：{item['content']}" in text
@@ -432,6 +445,39 @@ def test_enrichment_only_reads_new_context_once_per_post_and_floor(store):
     assert second["my_comment"] == "我的完整评论" and second["my_comment_likes"] == 5
     store.ingest([first, second])
     assert client.enrich(store.new_events([first, second])) == []
+    assert len(calls) == 2
+
+
+def test_comment_like_fetches_missing_post_author_nickname():
+    row = message(source="likes", kind_type=1)
+    row["post"].pop("nickname")
+    item = normalize("likes", row)
+    calls = []
+
+    def request(url, **kwargs):
+        calls.append(url)
+        if "/post?" in url:
+            return {
+                "code": 200,
+                "data": {
+                    "post": {
+                        "id": 101,
+                        "nickname": "补读的发帖人",
+                        "title": "示例帖子",
+                        "content": "示例帖子正文",
+                        "like_count": 2,
+                    }
+                }
+            }
+        assert "/floor?" in url
+        return {
+            "code": 200,
+            "data": {"floor": {"id": 11, "content": "示例评论", "like_count": 2}},
+        }
+
+    client = ForumClient(lambda: "test-token", request=request, sleep=lambda _: None)
+    client.enrich([item])
+    assert item["post_author"] == "补读的发帖人"
     assert len(calls) == 2
 
 
