@@ -467,7 +467,7 @@ def test_comment_like_fetches_missing_post_author_nickname():
                         "content": "示例帖子正文",
                         "like_count": 2,
                     }
-                }
+                },
             }
         assert "/floor?" in url
         return {

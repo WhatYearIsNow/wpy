@@ -105,9 +105,7 @@ def render_digest(events, base_url="", *, test=False):
     base_url = validate_base_url(base_url)
     title = "微北洋邮件提醒测试" if test else "微北洋互动提醒"
     subject = notification_subject(events, test=test)
-    intro = (
-        "这是一封使用合成内容的测试邮件，没有发生下面展示的真实互动。" if test else ""
-    )
+    intro = "这是一封使用合成内容的测试邮件，没有发生下面展示的真实互动。" if test else ""
     text = [title]
     if intro:
         text.append(intro)
