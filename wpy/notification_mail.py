@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import smtplib
 import ssl
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlsplit
 
 
 class NotificationError(RuntimeError):
@@ -164,7 +164,7 @@ def render_digest(events, base_url="", *, test=False):
         )
         link = ""
         if base_url:
-            target = base_url + "?" + urlencode({"postId": event["post_id"]})
+            target = base_url + "post/" + quote(str(event["post_id"]), safe="")
             text.append("查看帖子：" + target)
             link = '<p><a href="' + html.escape(target, quote=True) + '">查看帖子</a></p>'
         cards.append(

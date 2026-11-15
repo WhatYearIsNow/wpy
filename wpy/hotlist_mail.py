@@ -12,7 +12,7 @@ import re
 import sqlite3
 import subprocess
 import time
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from .notification_mail import MailConfig, NotificationError, send_mail, validate_base_url

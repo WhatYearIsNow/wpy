@@ -1712,7 +1712,7 @@ var NAV=[];
 var DIRECT_POST_ID=0;
 function directPostId(){
   var match=window.location.pathname.match(/\/post\/(\d+)\/?$/);
-  var value=match?match[1]:(new URLSearchParams(window.location.search)).get('postId');
+  var value=match?match[1]:'';
   var id=Number(value);
   return Number.isSafeInteger(id)&&id>0?id:0;
 }

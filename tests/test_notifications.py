@@ -367,7 +367,7 @@ def test_html_is_escaped_and_mail_has_no_remote_images():
     assert "测试" in subject and "合成内容" in text
     assert "<script>" not in body and "<img " not in body
     assert "&lt;script&gt;" in body and "&lt;b&gt;原评论" in body
-    assert 'href="https://board.example.invalid/?postId=101"' in body
+    assert 'href="https://board.example.invalid/post/101"' in body
     assert "wpytoken" not in body
 
 
