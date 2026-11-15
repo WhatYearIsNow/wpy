@@ -364,6 +364,14 @@ mark.hl{background:linear-gradient(180deg,transparent 58%,#ffe08a 58%);
 .modal{position:fixed;inset:0;background:#f6f9fd;z-index:50;
   display:none;overflow-y:auto;padding:0}
 .modal.on{display:block}
+body.post-preview-only>header,
+body.post-preview-only>.pbar,
+body.post-preview-only>.wrap,
+body.post-preview-only>.backtop,
+body.post-preview-only>.user-pop,
+body.post-preview-only>.followpop,
+body.post-preview-only>.askbox,
+body.post-preview-only>.toast{display:none!important}
 /* 宽度自适应：宽屏最大 760px（一行太宽不利于阅读），
    窄屏自动收缩并保留 24px 边距，不会贴边显得憋闷 */
 /* 顶部不留白：直接贴到屏幕最上，遮罩盖满整屏，

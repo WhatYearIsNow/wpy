@@ -475,11 +475,11 @@ function loadPostDetail(id){
     // 现在直接把失败原因和「重试」放在内容区里。
     $('#sheet').innerHTML='<div class="sheet">'+
       '<div class="head"><div class="headin">'+
-        '<button class="back" onclick="navBack()" title="返回列表（Esc）">'+
+        '<button class="back" onclick="closePostView()" title="返回看板（Esc）">'+
         '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" '+
         'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '+
         'stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>'+
-        '<span>返回</span></button>'+
+        '<span>'+(DIRECT_POST_ID?'返回看板':'返回')+'</span></button>'+
         '<span class="ttl">#'+id+'</span></div></div>'+
       '<div class="body"><div class="failbox">'+
         '<div class="fmsg">这条帖子没能加载出来</div>'+
@@ -494,13 +494,14 @@ function drawPost(p){
   // 浏览器标签页标题跟着帖子走：多开/找历史标签时认得出是哪一篇
   document.title=(p.t||('帖子 #'+p.id))+' · 青年湖底';
   var deeper=NAV.length>1;
+  var backLabel=DIRECT_POST_ID?'返回看板':(deeper?'返回':'列表');
   var h='<div class="sheet"><div class="head"><div class="headin">'+
-    '<button class="back" onclick="navBack()" title="'+
-      (deeper?'返回上一层':'返回列表')+'（Esc 或鼠标侧键）">'+
+    '<button class="back" onclick="closePostView()" title="'+
+      (DIRECT_POST_ID?'返回看板':(deeper?'返回上一层':'返回列表'))+'（Esc 或鼠标侧键）">'+
       '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" '+
       'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '+
       'stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>'+
-      '<span>'+(deeper?'返回':'列表')+'</span></button>'+
+      '<span>'+backLabel+'</span></button>'+
     '<span class="ttl">'+esc(p.t||('#'+p.id))+'</span>'+
     '</div></div><div class="body">'+
     '<div class="who">'+avatarHtml(p.av,p.a,'',p.uid)+
@@ -1708,6 +1709,21 @@ function clearFilters(){
    这样无论从哪进哪，都能原路退回，不会迷路。
    ============================================================ */
 var NAV=[];
+var DIRECT_POST_ID=0;
+function directPostId(){
+  var match=window.location.pathname.match(/\/post\/(\d+)\/?$/);
+  var value=match?match[1]:(new URLSearchParams(window.location.search)).get('postId');
+  var id=Number(value);
+  return Number.isSafeInteger(id)&&id>0?id:0;
+}
+function closePostView(){
+  if(DIRECT_POST_ID){
+    var base=document.querySelector('base');
+    window.location.href=base?base.href:new URL('./',window.location.href).href;
+    return;
+  }
+  navBack();
+}
 
 // 当前是否处于「从列表直接进主页」的根页面（根页面返回时回列表）
 /* 打开新页面时同时往浏览器历史里压一条记录，
@@ -2081,6 +2097,19 @@ function initHot(){
 if(HOT_MQ.addEventListener) HOT_MQ.addEventListener('change',hotSyncVisible);
 
 (function init(){
+  var directId=directPostId();
+  if(directId){
+    DIRECT_POST_ID=directId;
+    document.body.classList.add('post-preview-only');
+    applyTabOrder();
+    collectNames();
+    bootRole().then(function(){
+      bindMpHover();
+      bindFollowHover();
+      renderPost(directId);
+    });
+    return;
+  }
   applyTabOrder();
   collectNames();
   loadFollow();

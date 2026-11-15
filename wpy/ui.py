@@ -144,7 +144,7 @@ TYPE_COLORS = {
 DEFAULT_COLOR = "#979797"
 
 
-def build_html(out_path, gen_date=None):
+def render_html(gen_date=None, *, base_href=None):
     gen_date = gen_date or time.strftime("%Y-%m-%d %H:%M")
     js_s = JS.replace("__COLORS__", js_json(TYPE_COLORS)).replace(
         "__DEFAULT_COLOR__", DEFAULT_COLOR
@@ -156,6 +156,13 @@ def build_html(out_path, gen_date=None):
         .replace("__NCMT__", "0")
         .replace("__GENDATE__", gen_date)
     )
+    if base_href:
+        doc = doc.replace("<head>", f'<head><base href="{base_href}">', 1)
+    return doc
+
+
+def build_html(out_path, gen_date=None):
+    doc = render_html(gen_date)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(doc)
     return len(doc.encode("utf-8"))

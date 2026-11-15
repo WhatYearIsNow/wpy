@@ -12,7 +12,7 @@ import re
 import sqlite3
 import subprocess
 import time
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo
 
 from .notification_mail import MailConfig, NotificationError, send_mail, validate_base_url
@@ -105,7 +105,7 @@ def query_daily_hotlist(db_path, *, limit=MAX_ITEMS):
 
 
 def _preview_url(base_url, post_id):
-    return base_url + "?" + urlencode({"postId": post_id})
+    return base_url + "post/" + quote(str(post_id), safe="")
 
 
 def render_hotlist(posts, base_url, *, report_date=None):

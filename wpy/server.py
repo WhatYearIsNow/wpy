@@ -294,8 +294,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         return self._send(body, "application/json; charset=utf-8", code)
 
-    def read_html(self, path=None):
+    def read_html(self, path=None, *, base_href=None):
         try:
+            if base_href:
+                from .ui import render_html
+
+                return render_html(base_href=base_href).encode("utf-8")
             with open(path or HTML_PATH, "rb") as f:
                 return f.read()
         except OSError:
@@ -372,6 +376,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if path in ("/", "/index.html"):
                 return self._send(_LOGIN_PAGE.replace("{ERR}", ""), "text/html; charset=utf-8", 401)
             return self._json({"error": "unauthorized"}, 401)
+
+        if path.startswith("/post/"):
+            post_id = path.removeprefix("/post/").strip("/")
+            if not post_id.isdigit() or int(post_id) <= 0:
+                return self._send("无效的帖子编号", "text/plain; charset=utf-8", 404)
+            return self._send(self.read_html(base_href="../"), "text/html; charset=utf-8")
 
         # 首次带 ?token= 进入时种管理员会话，之后刷新不用再带
         if (
