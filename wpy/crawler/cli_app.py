@@ -169,6 +169,9 @@ def build_parser():
     from ..notification_cli import add_parser
 
     add_parser(sub)
+    from ..hotlist_cli import add_parser as add_hotlist_parser
+
+    add_hotlist_parser(sub)
     return p, sub
 
 
@@ -180,6 +183,10 @@ def main(argv=None):
         from ..notification_cli import main as notify_main
 
         return notify_main(args)
+    if args.cmd == "hotlist-mail":
+        from ..hotlist_cli import main as hotlist_main
+
+        return hotlist_main(args)
 
     # 应用全局速率设置（所有联网命令都受影响）
     qps = getattr(args, "qps", None)
