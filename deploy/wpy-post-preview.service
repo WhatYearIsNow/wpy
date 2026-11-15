@@ -11,6 +11,7 @@ Environment=WPY_DATA_DIR=/opt/wpy/wpy-sitewide/data
 Environment=WPY_BUILD_DIR=/opt/wpy/wpy-sitewide/build
 Environment=WPY_LOG_DIR=/opt/wpy/wpy-sitewide/logs
 Environment=WPY_PAGES_DIR=/opt/wpy/wpy-sitewide/pages
+EnvironmentFile=-/etc/wpy/preview.env
 ExecStart=/usr/bin/python3 -m wpy preview --host 127.0.0.1 --port 8767
 Restart=on-failure
 RestartSec=3

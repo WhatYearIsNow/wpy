@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 import urllib.parse
 
 from .board_api import BoardDB
 from .config import DEFAULT_HOST, DB_PATH, PIC_API
 from .server import Server, _Handler
+from .ui import render_html
 
 
 _API_PATHS = frozenset(("/api/me", "/api/post", "/api/user", "/api/users"))
@@ -28,8 +30,8 @@ def allowed_preview_path(path):
     if path.startswith("/img/"):
         return True
     if path.startswith("/post/"):
-        post_id = path.removeprefix("/post/").strip("/")
-        return len(post_id) <= 20 and post_id.isdigit() and int(post_id) > 0
+        match = re.fullmatch(r"/post/([0-9]{1,20})/?", path)
+        return bool(match and int(match[1]) > 0)
     return False
 
 
@@ -41,6 +43,9 @@ class _PostPreviewHandler(_Handler):
         path = urllib.parse.urlparse(self.path).path
         if not allowed_preview_path(path):
             return self._send("not found", "text/plain; charset=utf-8", 404)
+        if path.startswith("/post/"):
+            base_href = "../../" if path.endswith("/") else "../"
+            return self._send(render_html(base_href=base_href), "text/html; charset=utf-8")
         return super().do_GET()
 
     def do_POST(self):
