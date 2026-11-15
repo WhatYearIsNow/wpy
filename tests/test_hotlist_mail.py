@@ -112,7 +112,7 @@ def test_render_email_contains_metrics_links_and_escaped_content():
     )
     assert subject == "今日热榜｜2026-11-15"
     assert "浏览 1,200　点赞 42　评论 17　收藏 8" in text
-    assert "预览全文：https://board.example.invalid/wpy/?postId=123" in text
+    assert "预览全文：https://board.example.invalid/wpy/post/123" in text
     assert "<script>" not in body and "&lt;script&gt;标题" in body
     assert "合成摘要 &amp; &lt;安全内容&gt;" in body
     assert "#2A5A90" in body and "600px" in body
