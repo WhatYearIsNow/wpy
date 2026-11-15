@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import smtplib
 import ssl
+from urllib.parse import quote, urlsplit
 
 
 class NotificationError(RuntimeError):
@@ -56,6 +57,23 @@ class MailConfig:
         return config
 
 
+def validate_base_url(value):
+    if not value:
+        return ""
+    url = urlsplit(value)
+    if (
+        url.scheme not in ("http", "https")
+        or not url.hostname
+        or url.username
+        or url.password
+        or url.query
+        or url.fragment
+        or any(c.isspace() for c in value)
+    ):
+        raise NotificationError("看板链接必须是无账号、查询参数或片段的 HTTP(S) 地址")
+    return value.rstrip("/") + "/"
+
+
 LABELS = {
     "post_like": "有人点赞了你的帖子",
     "floor_like": "有人点赞了你的评论",
@@ -82,8 +100,9 @@ def notification_subject(events, *, test=False):
     return "微北洋通知｜" + "；".join(parts) + ("（测试）" if test else "")
 
 
-def render_digest(events, _base_url="", *, test=False):
+def render_digest(events, base_url="", *, test=False):
     """course 风格的标题、键值表、备注；所有论坛文本必须转义。"""
+    base_url = validate_base_url(base_url)
     title = "微北洋邮件提醒测试" if test else "微北洋互动提醒"
     subject = notification_subject(events, test=test)
     intro = "这是一封使用合成内容的测试邮件，没有发生下面展示的真实互动。" if test else ""
@@ -143,11 +162,17 @@ def render_digest(events, _base_url="", *, test=False):
             'white-space:pre-wrap;overflow-wrap:anywhere">' + html.escape(str(value)) + "</td></tr>"
             for key, value in rows
         )
+        link = ""
+        if base_url:
+            target = base_url + "post/" + quote(str(event["post_id"]), safe="")
+            text.append("查看帖子：" + target)
+            link = '<p><a href="' + html.escape(target, quote=True) + '">查看帖子</a></p>'
         cards.append(
             '<div style="border-top:1px solid #e5e7eb;padding:14px 0">'
             '<table style="border-collapse:collapse;font-size:14px">'
             + table
             + "</table>"
+            + link
             + "</div>"
         )
         text.append("")

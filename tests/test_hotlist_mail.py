@@ -84,7 +84,6 @@ def test_daily_query_is_read_only_recent_and_view_ranked(hot_db):
     posts = query_daily_hotlist(hot_db)
     assert [post["id"] for post in posts] == [102, 101]
     assert posts[0]["summary"] == "正文摘要内容"
-    assert posts[0]["content"] == "正文摘要内容"
     assert posts[0]["favorites"] == 18
     assert not list(hot_db.parent.glob("sitewide.db-*"))
 
@@ -96,7 +95,7 @@ def test_excerpt_removes_markup_and_shortens_safely():
     assert len(excerpt("甲" * 300)) <= 121
 
 
-def test_render_email_contains_full_content_metrics_and_no_links():
+def test_render_email_contains_metrics_links_and_escaped_content():
     post = {
         "id": 123,
         "title": "<script>标题</script>",
@@ -107,22 +106,21 @@ def test_render_email_contains_full_content_metrics_and_no_links():
         "likes": 42,
         "comments": 17,
         "favorites": 8,
-        "content": "完整正文 &amp; &lt;安全内容&gt;\n第二段<script>secret()</script>",
     }
-    subject, text, body = render_hotlist([post], report_date=datetime(2026, 11, 15).date())
+    subject, text, body = render_hotlist(
+        [post], "https://board.example.invalid/wpy/", report_date=datetime(2026, 11, 15).date()
+    )
     assert subject == "今日热榜｜2026-11-15"
     assert "浏览 1,200　点赞 42　评论 17　收藏 8" in text
-    assert "正文：\n完整正文 & <安全内容>\n第二段" in text
-    assert "href=" not in body and "https://" not in text
+    assert "预览全文：https://board.example.invalid/wpy/post/123" in text
     assert "<script>" not in body and "&lt;script&gt;标题" in body
-    assert "完整正文 &amp; &lt;安全内容&gt;" in body
-    assert "第二段" in body and "secret()" not in body
+    assert "合成摘要 &amp; &lt;安全内容&gt;" in body
     assert "#2A5A90" in body and "600px" in body
-    assert "<img" not in body
+    assert "<img" not in body and "https://" in body
 
 
 def test_empty_hotlist_has_clear_message():
-    _, text, body = render_hotlist([])
+    _, text, body = render_hotlist([], "https://board.example.invalid/wpy/")
     assert "最近 24 小时暂无可上榜帖子" in text
     assert "最近 24 小时暂无可上榜帖子" in body
 
@@ -145,6 +143,7 @@ def test_send_is_idempotent_and_uses_distinct_mail_category(hot_db, tmp_path):
         "db_path": hot_db,
         "state_dir": tmp_path / "state",
         "smtp_config": smtp,
+        "base_url": "https://board.example.invalid/wpy/",
         "now": now,
         "before_send": lambda: None,
         "sender": lambda *args, **kwargs: sent.append((args, kwargs)),
@@ -168,6 +167,7 @@ def test_send_failure_does_not_mark_day_sent(hot_db, tmp_path):
         "db_path": hot_db,
         "state_dir": tmp_path / "state",
         "smtp_config": smtp,
+        "base_url": "https://board.example.invalid/wpy/",
         "now": datetime(2026, 11, 15, 22, 30, tzinfo=SHANGHAI),
         "before_send": lambda: None,
     }
@@ -204,4 +204,3 @@ def test_preview_uses_only_synthetic_data():
     posts = preview_posts()
     assert len(posts) == 2
     assert all(post["id"] > 900_000_000 for post in posts)
-    assert all(post["content"] for post in posts)

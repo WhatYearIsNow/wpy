@@ -1,0 +1,25 @@
+[Unit]
+Description=WPY read-only post preview endpoint
+After=network.target
+
+[Service]
+Type=simple
+User=wpy
+WorkingDirectory=/opt/wpy/wpy-sitewide
+Environment=PYTHONUNBUFFERED=1
+Environment=WPY_DATA_DIR=/opt/wpy/wpy-sitewide/data
+Environment=WPY_BUILD_DIR=/opt/wpy/wpy-sitewide/build
+Environment=WPY_LOG_DIR=/opt/wpy/wpy-sitewide/logs
+Environment=WPY_PAGES_DIR=/opt/wpy/wpy-sitewide/pages
+ExecStart=/usr/bin/python3 -m wpy preview --host 127.0.0.1 --port 8767
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/wpy/wpy-sitewide/data
+ReadWritePaths=/opt/wpy/wpy-sitewide/data/img
+
+[Install]
+WantedBy=multi-user.target

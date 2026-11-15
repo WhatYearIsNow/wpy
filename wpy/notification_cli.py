@@ -16,6 +16,7 @@ from .notification_mail import (
     render_digest,
     send_mail,
     test_events,
+    validate_base_url,
 )
 from .notifications import (
     AuthenticationError,
@@ -45,6 +46,11 @@ def add_parser(sub):
         "--state-dir",
         default=os.environ.get("WPY_NOTIFY_STATE_DIR", str(Path(DATA_DIR) / "notifications")),
         help="独立的私有通知状态目录",
+    )
+    parser.add_argument(
+        "--base-url",
+        default=os.environ.get("WPY_NOTIFY_BASE_URL", ""),
+        help="邮件中查看帖子的看板根地址，可留空",
     )
     parser.add_argument(
         "--agent-state",
@@ -104,7 +110,7 @@ def main(args):
     try:
         if args.interval < INTERVAL or not 1 <= args.max_pages <= 200:
             raise NotificationError("检查间隔至少 300 秒，--max-pages 必须在 1 到 200 之间")
-        base_url = ""
+        base_url = validate_base_url(args.base_url)
         config = MailConfig.load(args.smtp_config)
         sender = lambda subject, text, body, message_id: send_mail(
             config, subject, text, body, message_id

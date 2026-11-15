@@ -137,6 +137,9 @@ def build_parser():
         "--token", type=str, default=None, help="访问口令；默认读环境变量 WPY_BOARD_TOKEN"
     )
     sv.add_argument("--no-open", action="store_true", help="不自动打开浏览器")
+    pv = sub.add_parser("preview", help="启动独立只读帖子预览服务")
+    pv.add_argument("--host", type=str, default="127.0.0.1", help="监听地址")
+    pv.add_argument("--port", type=int, default=8767, help="监听端口，默认 8767")
     hv = sub.add_parser("hot", help="启动热榜独立服务")
     hv.add_argument("--host", type=str, default="127.0.0.1", help="监听地址")
     hv.add_argument("--port", type=int, default=8766, help="监听端口，默认 8766")
@@ -212,6 +215,11 @@ def main(argv=None):
             host=getattr(args, "host", None),
             token=getattr(args, "token", None),
         )
+        return
+    if args.cmd == "preview":
+        from ..preview_server import serve as preview_serve
+
+        preview_serve(host=args.host, port=args.port)
         return
     if args.cmd == "hot":
         from ..hot_server import serve as hot_serve

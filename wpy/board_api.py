@@ -22,6 +22,7 @@ import re
 import sqlite3
 import threading
 import urllib.parse
+from pathlib import Path
 
 # 排序白名单：只允许这些字段排序，避免 SQL 注入
 SORT_MAP = {
@@ -60,16 +61,21 @@ TYPE_NAMES = {
 class BoardDB:
     """只读的看板数据访问层。所有查询都走这里。"""
 
-    def __init__(self, db_path, pic_base="", use_proxy=True):
+    def __init__(self, db_path, pic_base="", use_proxy=True, *, read_only=False):
         self.db_path = db_path
         self.pic_base = pic_base  # 图片 CDN 前缀
         self.use_proxy = use_proxy  # True 时图片走 /img/ 代理
         # ThreadingTCPServer 多线程共用一个连接：不加锁会互相踩，
         # 表现为 /api/user 与 /api/posts 互相卡住（用户卡「统计中」、列表无响应）。
         self._lock = threading.RLock()
-        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+        if read_only:
+            uri = Path(db_path).resolve().as_uri() + "?mode=ro"
+            self.conn = sqlite3.connect(uri, uri=True, check_same_thread=False, timeout=30)
+        else:
+            self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.row_factory = sqlite3.Row
-        self._ensure_indexes()
+        if not read_only:
+            self._ensure_indexes()
         try:
             # 之后只读；建索引必须在设 query_only 之前
             self.conn.execute("PRAGMA query_only=ON")
