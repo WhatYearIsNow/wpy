@@ -29,3 +29,7 @@ systemd 服务由每日 timer 调用；不启用 `Persistent` 追补错过的日
 发送设置和模板见 `deploy/wpy-hotlist-mail.service`、`deploy/wpy-hotlist-mail.timer` 与
 `deploy/env.hotlist.example`。部署时需将服务 ExecStart 指向独立发行环境，并在核对 SMTP 配置、
 看板链接和数据库只读权限后启用 timer。
+
+## 当前部署
+
+2026-11-15 已启用独立 systemd timer，首次计划发送时间为北京时间 22:30。启用只启动 timer，未手动发送测试邮件；服务账号只读验证了抓取库、SMTP 配置和看板预览地址。部署发行版本和本机回退路径仅记录在工作区私有记忆中。
