@@ -13,6 +13,10 @@ WorkingDirectory=/var/lib/wpy-hotlist
 ExecStart=/usr/bin/python3 -m wpy hotlist-mail --send
 Environment=PYTHONUNBUFFERED=1
 Environment=WPY_HOTLIST_STATE_DIR=/var/lib/wpy-hotlist
+Environment=WPY_DATA_DIR=/var/lib/wpy-hotlist/runtime/data
+Environment=WPY_BUILD_DIR=/var/lib/wpy-hotlist/runtime/build
+Environment=WPY_LOG_DIR=/var/lib/wpy-hotlist/runtime/logs
+Environment=WPY_PAGES_DIR=/var/lib/wpy-hotlist/runtime/pages
 EnvironmentFile=/etc/wpy/hotlist.env
 Restart=on-failure
 RestartSec=10min
