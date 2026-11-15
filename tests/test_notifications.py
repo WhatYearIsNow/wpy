@@ -210,11 +210,10 @@ def test_state_persists_and_cannot_be_reused_for_another_identity(tmp_path):
         assert (directory / "notifications.sqlite3").stat().st_mode & 0o777 == 0o600
 
 
-def test_ingest_and_queue_are_atomic_on_render_failure(store):
+def test_ingest_does_not_depend_on_board_link_configuration(store):
     store.ingest([])
-    with pytest.raises(mail.NotificationError):
-        store.ingest([event()], "javascript:alert(1)")
-    assert store.ingest([event()])["new"] == 1
+    assert store.ingest([event()], "javascript:alert(1)")["new"] == 1
+    assert store.ingest([event()])["new"] == 0
 
 
 def test_failures_remain_pending_and_retry_without_refetch_or_duplicate_queue(store):
@@ -367,7 +366,7 @@ def test_html_is_escaped_and_mail_has_no_remote_images():
     assert "测试" in subject and "合成内容" in text
     assert "<script>" not in body and "<img " not in body
     assert "&lt;script&gt;" in body and "&lt;b&gt;原评论" in body
-    assert 'href="https://board.example.invalid/post/101"' in body
+    assert "href=" not in body and "查看帖子：" not in text
     assert "wpytoken" not in body
 
 
@@ -514,20 +513,6 @@ def test_failed_context_fetch_does_not_advance_message_baseline(store):
         client.enrich(store.new_events([item]))
     assert store.new_events([item]) == [item]
     assert not store.db.execute("SELECT 1 FROM outbox").fetchone()
-
-
-@pytest.mark.parametrize(
-    "url",
-    [
-        "javascript:alert(1)",
-        "https://test:secret@example.invalid/",
-        "https://example.invalid/?token=test",
-        "https://example.invalid/#test",
-    ],
-)
-def test_unsafe_mail_links_are_rejected(url):
-    with pytest.raises(mail.NotificationError):
-        mail.validate_base_url(url)
 
 
 def config_file(tmp_path):

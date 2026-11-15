@@ -37,11 +37,6 @@ def add_parser(sub):
         default=os.environ.get("WPY_SMTP_CONFIG", ""),
         help="SMTP JSON 配置路径",
     )
-    parser.add_argument(
-        "--base-url",
-        default=os.environ.get("WPY_NOTIFY_BASE_URL", ""),
-        help="看板预览链接根地址",
-    )
     parser.add_argument("--limit", type=int, default=MAX_ITEMS, help=f"最多列出 {MAX_ITEMS} 条")
     return parser
 
@@ -51,7 +46,6 @@ def main(args):
         if args.preview:
             subject, _, body = render_hotlist(
                 preview_posts(),
-                args.base_url or "https://board.example.invalid/wpy/",
                 report_date=datetime.now(SHANGHAI).date(),
             )
             target = Path(args.preview)
@@ -68,7 +62,6 @@ def main(args):
                 ("WPY_NOTIFY_CRAWLER_DB", args.db),
                 ("WPY_HOTLIST_STATE_DIR", args.state_dir),
                 ("WPY_SMTP_CONFIG", args.smtp_config),
-                ("WPY_NOTIFY_BASE_URL", args.base_url),
             )
             if not value
         ]
@@ -80,7 +73,6 @@ def main(args):
             db_path=args.db,
             state_dir=args.state_dir,
             smtp_config=args.smtp_config,
-            base_url=args.base_url,
             limit=args.limit,
             before_send=wait_for_update,
         )

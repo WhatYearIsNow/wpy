@@ -12,10 +12,9 @@ import re
 import sqlite3
 import subprocess
 import time
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
-from .notification_mail import MailConfig, NotificationError, send_mail, validate_base_url
+from .notification_mail import MailConfig, NotificationError, send_mail
 from .notifications import worker_lock
 
 
@@ -23,6 +22,7 @@ BEIYANG_BLUE = "#2A5A90"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 MAX_ITEMS = 10
 EXCERPT_LENGTH = 120
+MAX_EMAIL_POST_CHARS = 8000
 UPDATE_UNIT = "wpy-update.service"
 
 
@@ -35,13 +35,17 @@ class _TextOnly(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag in ("script", "style"):
             self.hidden += 1
-        elif not self.hidden and tag in ("br", "p", "div", "li", "tr"):
+        elif not self.hidden and tag in ("br", "p", "div", "li", "tr", "blockquote"):
+            self.parts.append("\n")
+        elif not self.hidden and tag in ("td", "th"):
             self.parts.append(" ")
 
     def handle_endtag(self, tag):
         if tag in ("script", "style") and self.hidden:
             self.hidden -= 1
-        elif not self.hidden and tag in ("p", "div", "li", "tr"):
+        elif not self.hidden and tag in ("br", "p", "div", "li", "tr", "blockquote"):
+            self.parts.append("\n")
+        elif not self.hidden and tag in ("td", "th"):
             self.parts.append(" ")
 
     def handle_data(self, data):
@@ -49,11 +53,19 @@ class _TextOnly(HTMLParser):
             self.parts.append(data)
 
 
-def excerpt(content, limit=EXCERPT_LENGTH):
-    """Turn the opening of a post body into a safe, short text summary."""
+def post_text(content):
+    """Extract readable text from a post without carrying remote HTML."""
     parser = _TextOnly()
     parser.feed(str(content or ""))
-    text = re.sub(r"\s+", " ", "".join(parser.parts)).strip()
+    text = "".join(parser.parts).replace("\xa0", " ")
+    text = re.sub(r"[ \t]*\n[ \t]*", "\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def excerpt(content, limit=EXCERPT_LENGTH):
+    """Turn the opening of a post body into a safe, short text summary."""
+    text = re.sub(r"\s+", " ", post_text(content)).strip()
     if not text:
         return "帖子暂无可用正文摘要。"
     if len(text) <= limit:
@@ -76,7 +88,7 @@ def query_daily_hotlist(db_path, *, limit=MAX_ITEMS):
         try:
             rows = connection.execute(
                 "SELECT id, 标题, 作者, 分管部门, 板块ID, 点赞数, 评论数, 收藏数, 浏览量, "
-                "发布时间, substr(正文,1,8000) AS 摘要源 "
+                "发布时间, 正文 "
                 "FROM posts WHERE replace(substr(发布时间,1,19),'T',' ') > "
                 "datetime('now','localtime','-1 day') "
                 "ORDER BY 浏览量 DESC LIMIT ?",
@@ -86,33 +98,36 @@ def query_daily_hotlist(db_path, *, limit=MAX_ITEMS):
             connection.close()
     except (OSError, sqlite3.Error):
         raise NotificationError("读取热榜数据库失败") from None
-    return [
-        {
-            "id": row["id"],
-            "title": row["标题"] or "（无标题）",
-            "author": row["作者"] or "匿名",
-            "board": row["分管部门"] or "",
-            "board_id": row["板块ID"] or 0,
-            "views": row["浏览量"] or 0,
-            "likes": row["点赞数"] or 0,
-            "comments": row["评论数"] or 0,
-            "favorites": row["收藏数"] or 0,
-            "published": (row["发布时间"] or "")[:16].replace("T", " "),
-            "summary": excerpt(row["摘要源"]),
-        }
-        for row in rows
-    ]
+    posts = []
+    for row in rows:
+        content = post_text(row["正文"])
+        truncated = len(content) > MAX_EMAIL_POST_CHARS
+        if truncated:
+            content = (
+                content[:MAX_EMAIL_POST_CHARS].rstrip() + "\n……（正文较长，邮件仅展示前 8,000 字）"
+            )
+        posts.append(
+            {
+                "id": row["id"],
+                "title": row["标题"] or "（无标题）",
+                "author": row["作者"] or "匿名",
+                "board": row["分管部门"] or "",
+                "board_id": row["板块ID"] or 0,
+                "views": row["浏览量"] or 0,
+                "likes": row["点赞数"] or 0,
+                "comments": row["评论数"] or 0,
+                "favorites": row["收藏数"] or 0,
+                "published": (row["发布时间"] or "")[:16].replace("T", " "),
+                "summary": excerpt(content),
+                "content": content or "帖子暂无可用正文。",
+                "truncated": truncated,
+            }
+        )
+    return posts
 
 
-def _preview_url(base_url, post_id):
-    return base_url + "post/" + quote(str(post_id), safe="")
-
-
-def render_hotlist(posts, base_url, *, report_date=None):
+def render_hotlist(posts, *, report_date=None):
     """Return subject, plain text, and email-client-friendly HTML."""
-    base_url = validate_base_url(base_url)
-    if not base_url:
-        raise NotificationError("热榜邮件需要配置看板预览链接")
     report_date = report_date or datetime.now(SHANGHAI).date()
     if isinstance(report_date, datetime):
         report_date = report_date.date()
@@ -121,8 +136,7 @@ def render_hotlist(posts, base_url, *, report_date=None):
     text = [f"今日热榜 · {date_text}", "统计范围：最近 24 小时发帖，按浏览量排序。", ""]
     cards = []
     for index, post in enumerate(posts, 1):
-        url = _preview_url(base_url, post["id"])
-        summary = post.get("summary") or "帖子暂无可用正文摘要。"
+        content = post_text(post.get("content") or post.get("summary")) or "帖子暂无可用正文。"
         board = post.get("board") or ""
         metrics = (
             f"浏览 {post['views']:,}　点赞 {post['likes']:,}　"
@@ -132,9 +146,9 @@ def render_hotlist(posts, base_url, *, report_date=None):
             [
                 f"{index:02d}. {post['title']}",
                 f"发帖人：{post['author']}" + (f"　板块：{board}" if board else ""),
-                f"摘要：{summary}",
                 metrics,
-                f"预览全文：{url}",
+                "正文：",
+                content,
                 "",
             ]
         )
@@ -153,19 +167,16 @@ def render_hotlist(posts, base_url, *, report_date=None):
             'border-bottom:0;background:#fff">'
             f"{badge}{board_html}"
             '<div style="margin-top:9px;font-size:17px;line-height:1.45;font-weight:700">'
-            f'<a style="color:#212121;text-decoration:none" href="{escape(url, quote=True)}">'
-            f"{escape(post['title'])}</a></div>"
+            f'<span style="color:#212121">{escape(post["title"])}</span></div>'
             '<div style="margin-top:5px;color:#777;font-size:12px">发帖人：'
             f"{escape(post['author'])}</div>"
-            '<div style="margin-top:9px;color:#444;font-size:14px;line-height:1.65">'
-            f'<strong style="color:{BEIYANG_BLUE}">摘要：</strong>{escape(summary)}</div>'
             '<div style="margin-top:10px;color:#667085;font-size:12px;line-height:1.8">'
             f"浏览 {post['views']:,}　点赞 {post['likes']:,}　"
             f"评论 {post['comments']:,}　收藏 {post['favorites']:,}</div>"
-            '<div style="margin-top:12px"><a style="display:inline-block;background:'
-            f"{BEIYANG_BLUE};color:#fff;text-decoration:none;padding:7px 13px;"
-            f'border-radius:4px;font-size:13px" href="{escape(url, quote=True)}">'
-            "预览全文</a></div></td></tr>"
+            '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3;'
+            'font-size:14px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere">'
+            f'<strong style="color:{BEIYANG_BLUE}">正文：</strong>{escape(content)}</div>'
+            "</td></tr>"
             '<tr><td style="height:10px;font-size:0;line-height:0">&nbsp;</td></tr>'
         )
     if not posts:
@@ -174,7 +185,7 @@ def render_hotlist(posts, base_url, *, report_date=None):
             '<tr><td style="padding:22px 16px;color:#667085;border:1px solid #e5e9ef">'
             "最近 24 小时暂无可上榜帖子。</td></tr>"
         )
-    text.append("数据来自湖底热榜；点击“预览全文”可在看板查看帖子完整内容。")
+    text.append("正文直接包含在邮件中；过长帖子会注明节选范围。")
     body = (
         '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"></head><body '
         'style="margin:0;background:#f4f6f9;color:#212121;font-family:Arial,'
@@ -191,7 +202,7 @@ def render_hotlist(posts, base_url, *, report_date=None):
         'cellpadding="0" cellspacing="0">'
         + "".join(cards)
         + '</table></td></tr><tr><td style="padding:12px 4px;color:#888;font-size:11px;'
-        'line-height:1.6">数据来自湖底热榜 · 点击“预览全文”可在看板查看帖子完整内容。'
+        'line-height:1.6">正文直接包含在邮件中；过长帖子会注明节选范围。'
         "</td></tr></table></td></tr></table></body></html>"
     )
     return subject, "\n".join(text), body
@@ -230,7 +241,6 @@ def send_daily_hotlist(
     db_path,
     state_dir,
     smtp_config,
-    base_url,
     limit=MAX_ITEMS,
     now=None,
     sender=send_mail,
@@ -240,9 +250,6 @@ def send_daily_hotlist(
     current = (now or datetime.now(SHANGHAI)).astimezone(SHANGHAI)
     send_date = current.date()
     mail_config = MailConfig.load(smtp_config)
-    base_url = validate_base_url(base_url)
-    if not base_url:
-        raise NotificationError("热榜邮件需要配置看板预览链接")
     state_dir = Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(state_dir, 0o700)
@@ -262,7 +269,7 @@ def send_daily_hotlist(
                 return {"sent": 0, "skipped": "already_sent", "items": 0}
             before_send()
             posts = query_daily_hotlist(db_path, limit=limit)
-            subject, plain, body = render_hotlist(posts, base_url, report_date=send_date)
+            subject, plain, body = render_hotlist(posts, report_date=send_date)
             message_id = f"<daily-hotlist-{send_date:%Y%m%d}@wpy.local>"
             sender(
                 mail_config,
@@ -299,6 +306,7 @@ def preview_posts():
             "comments": 32,
             "favorites": 17,
             "summary": "发帖人整理了几个适合周末的活动方案，并邀请大家讨论集合时间和地点。",
+            "content": "发帖人整理了几个适合周末的活动方案。\n\n大家可以讨论集合时间和地点。",
         },
         {
             "id": 987654322,
@@ -310,5 +318,6 @@ def preview_posts():
             "comments": 21,
             "favorites": 9,
             "summary": "记录新窗口的菜品、价格和排队情况，附上几条同学们的体验反馈。",
+            "content": "记录新窗口的菜品、价格和排队情况。\n\n附上几条同学们的体验反馈。",
         },
     ]
