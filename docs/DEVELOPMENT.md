@@ -180,6 +180,10 @@ WPY_PORT=8765
 WPY_BOARD_TOKEN=your_board_token
 ```
 
+需要免登录只读浏览时可设置 `WPY_PUBLIC_READ_ONLY=1`。所有访问者固定为游客，不显示口令登录页，
+旧 token、会话 cookie 和 `?token=` 都不能取得管理员权限；服务器拒绝关注列表保存和所有论坛写操作。
+未设置该变量时，本地无口令管理员模式和原有口令保护模式保持不变。
+
 上面是配置项示意，Python 不会自动加载环境文件。在终端使用 `export`（PowerShell
 使用 `$env:变量名 = '值'`）设置，或按部署指南交由 systemd 的 `EnvironmentFile` 加载。
 从源码运行时，默认目录位于项目根目录；安装 wheel 后使用当前用户的数据目录，

@@ -195,6 +195,7 @@ def _log(msg):
 class _Handler(http.server.BaseHTTPRequestHandler):
     board = None
     token = ""
+    public_read_only = False
 
     def log_message(self, *a):
         pass
@@ -230,12 +231,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         )
 
     def _role(self):
-        """'admin' / 'guest'；未登录返回 ''。口令为空（本地模式）视为 admin。
+        """'admin' / 'guest'；未登录返回 ''。公开只读模式始终视为 guest；
+        口令为空且未启用公开只读模式（本地模式）视为 admin。
 
         判定顺序：URL ?token=（显式链接，最优先）> 新会话 cookie
         wpy_session（游客/管理员）> 旧版口令 cookie wpy_token（兼容）。
         新会话优先于旧 cookie：否则先拿到过口令 cookie 的浏览器
         点「游客进入」后仍会被当成管理员。"""
+        if self.public_read_only:
+            return "guest"
         if not self.token:
             return "admin"
         if self._query_token() == self.token:
@@ -351,12 +355,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             )
 
         if path == "/login":
+            if self.public_read_only:
+                return self._redirect("./")
             if self.token and self._role():
                 return self._redirect("./")
             err = '<p class="err">口令不对，再试一次</p>' if "err=1" in (parsed.query or "") else ""
             return self._send(_LOGIN_PAGE.replace("{ERR}", err), "text/html; charset=utf-8")
 
         if path == "/logout":
+            if self.public_read_only:
+                return self._redirect("./", "wpy_session=; Path=/; HttpOnly; Max-Age=0")
             return self._redirect("login", "wpy_session=; Path=/; HttpOnly; Max-Age=0")
 
         role = self._role()
@@ -366,7 +374,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return self._json({"error": "unauthorized"}, 401)
 
         # 首次带 ?token= 进入时种管理员会话，之后刷新不用再带
-        if self.token and self._query_token() == self.token and path in ("/", "/index.html"):
+        if (
+            self.token
+            and not self.public_read_only
+            and self._query_token() == self.token
+            and path in ("/", "/index.html")
+        ):
             html = self.read_html().decode("utf-8", errors="replace")
             return self._send(
                 html,
@@ -466,6 +479,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         form = self._read_form()
 
         if path == "/login":
+            if self.public_read_only:
+                return self._redirect("./")
             if not self.token:
                 return self._redirect("./")
             ip = _client_ip(self)
@@ -492,6 +507,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         role = self._role()
         if self.token and not role:
             return self._json({"error": "unauthorized"}, 401)
+        if self.public_read_only:
+            return self._json({"error": "public board is read-only"}, 403)
 
         if path == "/api/follow":
             uid = (form.get("uid") or "").strip()
@@ -639,6 +656,11 @@ def serve(host=None, port=None, open_browser=None, token=None, db_path=None):
     host = host if host is not None else DEFAULT_HOST
     port = port if port is not None else DEFAULT_PORT
     token = BOARD_TOKEN if token is None else token
+    public_read_only = os.environ.get("WPY_PUBLIC_READ_ONLY", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     if open_browser is None:
         open_browser = host in ("127.0.0.1", "localhost")
 
@@ -655,7 +677,11 @@ def serve(host=None, port=None, open_browser=None, token=None, db_path=None):
 
     os.makedirs(IMG_DIR, exist_ok=True)
     board = BoardDB(db_path or _DB, pic_base=PIC_API, use_proxy=True)
-    handler = type("Handler", (_Handler,), {"board": board, "token": token or ""})
+    handler = type(
+        "Handler",
+        (_Handler,),
+        {"board": board, "token": token or "", "public_read_only": public_read_only},
+    )
 
     url_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
     url = "http://%s:%d/" % (url_host, port)
@@ -670,7 +696,9 @@ def serve(host=None, port=None, open_browser=None, token=None, db_path=None):
     print("  本机打开：%s" % url)
     if host in ("0.0.0.0", "::"):
         print("  公网访问：请配置域名反代，并设置 WPY_BOARD_TOKEN")
-    if token:
+    if public_read_only:
+        print("  访问模式：免登录只读访客")
+    elif token:
         print("  已启用访问口令：游客免口令浏览，管理员用 WPY_BOARD_TOKEN")
     print("  健康检查：/healthz")
     print("  按 Ctrl+C 停止。")
