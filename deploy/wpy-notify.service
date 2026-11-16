@@ -27,6 +27,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+# WPY_NOTIFY_AI_STATE 默认位于这里。即使只读查询 WAL 数据库，SQLite 也需要
+# 在同目录创建或更新 -shm/-wal 辅助文件；否则 agent 停止后通知会整轮失败。
+ReadWritePaths=-/var/lib/wpy-ai-agent/state
 
 [Install]
 WantedBy=multi-user.target
